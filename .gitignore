@@ -1,4 +1,17 @@
-/.vscode
-/bin
-/include
-/lib
+# Enviroment
+.vscode/
+data/output
+src/help
+
+# Linux
+bin/
+etc/
+include/
+lib/
+share/
+
+# Windows
+Scripts/
+Include/
+tcl/
+Lib
