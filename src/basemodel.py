@@ -659,7 +659,6 @@ class MultiClassBaseModel(nn.Module):
         return
 
 
-
 class ConvNet(MultiClassBaseModel):
     """
     Convolutional neural network
@@ -738,6 +737,7 @@ class ConvNet(MultiClassBaseModel):
                 nn.init.normal_(m.weight, 0, 0.01)
                 nn.init.constant_(m.bias, 0)
         return
+
 
 if __name__ == "__main__":
 
