@@ -761,25 +761,40 @@ if __name__ == "__main__":
         kind=0,
         input_size=(3, 32, 32),
         num_classes=10,
+        # Batch
         batch_size=64,
         batch_norm=False,
+        # Epoch
         epochs=3,
+        # Learning rate
         learning_rate=0.001,
         lr_factor=0.1,
         lr_patience=5,
+        # Regularization
         weight_decay=1E-5,
         dropout_rate=0.5,
+        # Metric
         loss_optim=True,
+        # Data
         data_augment=False,
+        # Early stopping
         early_stop=True,
         es_patience=10,
+        # Gradient clipping
         grad_clip_norm=False,
         gc_max_norm=100,
         grad_clip_value=False,
         gc_value=100,
+        # Initialization
+        init_params=True,
+        # Distributions
         distrib=None,
-        sanity_check=False,
-        debug=False)
+        # Environment
+        sanity_check=True,
+        debug=False,
+        num_workers=15,
+        mixed_precision=False,
+        time_train=False)
 
     # Load data
     data = DataMngr(setting)

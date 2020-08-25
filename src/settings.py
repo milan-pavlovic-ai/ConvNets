@@ -208,6 +208,9 @@ class Settings(HyperParams):
     DEF_SANITY_CHECK = False
     DEF_DEBUG = False
     DEF_DEVICE = DeviceMngr()
+    DEF_NUM_WORKERS = 15
+    DEF_MIXED_PRECISION = False
+    DEF_TIME_TRAIN = False
 
     # Initialization
     DEF_INIT_PARAMS = True
@@ -236,7 +239,10 @@ class Settings(HyperParams):
         distrib=None,
         sanity_check=None,
         debug=None,
-        device=None):
+        device=None,
+        num_workers=None,
+        mixed_precision=None,
+        time_train=None):
 
         super().__init__()
 
@@ -271,6 +277,9 @@ class Settings(HyperParams):
         self.sanity_check = sanity_check
         self.debug = debug
         self.device = device
+        self.num_workers = num_workers
+        self.mixed_precision = mixed_precision
+        self.time_train = time_train
 
         # Set default values for None
         for attrib, value in self.__dict__.items():
@@ -319,27 +328,41 @@ if __name__ == "__main__":
         kind=0,
         input_size=(3, 64, 64),
         num_classes=10,
+        # Batch
         batch_size=None,
         batch_norm=None,
+        # Epoch
         epochs=None,
+        # Learning rate
         learning_rate=None,
         lr_factor=None,
         lr_patience=None,
+        # Regularization
         weight_decay=None,
         dropout_rate=None,
+        # Metric
         loss_optim = None,
+        # Data
         data_augment=None,
+        # Early stopping
         early_stop=None,
         es_patience = None,
+        # Gradient clipping
         grad_clip_norm = None,
         gc_max_norm = None,
         grad_clip_value = None,
         gc_value = None,
+        # Initialization
         init_params=None,
+        # Distribution
         distrib=None,
+        # Environment
         sanity_check=None,
         debug=None,
-        device=None)
+        device=None,
+        num_workers=None,
+        mixed_precision=None,
+        time_train=None)
     setting2.show()
     hparams = setting2.get_hparams()
     print(hparams)
@@ -353,6 +376,8 @@ if __name__ == "__main__":
         'gc_max_norm': 0.33,
         'grad_clip_value':False,
         'gc_value':0.25,
-        'init_params':False})
+        'init_params':False,
+        'mixed_precision':True,
+        'num_workers':2})
     setting2.show()
 

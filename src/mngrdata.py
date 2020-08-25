@@ -54,6 +54,7 @@ class DataMngr:
         self.batch_size = self.setting.batch_size
         self.data_augment = self.setting.data_augment
         #self.data_norm = self.setting.data_norm
+        self.num_workers = self.setting.num_workers
 
         # Normalization parameters calculated from train dataset for each channel
         self.cinic_mean = [0.47889522, 0.47227842, 0.43047404]
@@ -150,7 +151,7 @@ class DataMngr:
             batch_size=self.batch_size,                 # how many samples per batch to load
             shuffle=True,                               # set to True to have the data reshuffled at every epoch
             pin_memory=True,                            # if True, it will enables faster data transfer from CPU to GPU by using page-locked memory
-            num_workers=15)                             # how many subprocesses to use for data loading
+            num_workers=self.num_workers)               # how many subprocesses to use for data loading
 
         return trainset
 
@@ -172,7 +173,7 @@ class DataMngr:
             batch_size=self.batch_size,                 # how many samples per batch to load
             shuffle=True,                               # set to True to have the data reshuffled at every epoch, because it's used to check training performance while traning model
             pin_memory=True,                            # if True, it will enables faster data transfer from CPU to GPU by using page-locked memory
-            num_workers=15)                             # how many subprocesses to use for data loading
+            num_workers=self.num_workers)               # how many subprocesses to use for data loading
 
         return validset
 
@@ -198,7 +199,7 @@ class DataMngr:
             batch_size=batch_size,                      # one sample per batch for testing, mostly because of inference time measuring
             shuffle=True,                               # data will be split into n segments for creating sample of metric for statistical testing
             pin_memory=True,                            # if True, it will enables faster data transfer from CPU to GPU by using page-locked memory
-            num_workers=15)                             # how many subprocesses to use for data loading
+            num_workers=self.num_workers)               # how many subprocesses to use for data loading
 
         return testset
 
@@ -243,9 +244,12 @@ if __name__ == "__main__":
 
     # Create setting
     setting = Settings(
+        kind=0,
         input_size=(3, 32, 32),
         num_classes=10,
-        batch_size=16)
+        batch_size=16,
+        data_augment=False,
+        num_workers=2)
 
     data = DataMngr(setting)
 
