@@ -2,6 +2,9 @@
 .vscode/
 data/output
 src/help
+src/__pycache__
+*.pyc
+*.pyo
 
 # Linux
 bin/

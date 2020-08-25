@@ -28,11 +28,16 @@ class MultiClassBaseModel(nn.Module):
     """
 
     def __init__(self, setting):
-        super(MultiClassBaseModel, self).__init__()
-        self.model_name = self.__class__.__name__
-        self.version = int(t.time())
+        super().__init__()
         self.setting = setting
+        self.version = int(t.time())
+        self.model_name = self.__class__.__name__ + str(self.setting.kind)
         self.model_path = self.create_checkpoint_path()
+
+        # Input shape
+        self.in_channels = self.setting.input_size[0]
+        self.height = self.setting.input_size[1]
+        self.width = self.setting.input_size[2]
 
         # Available after training
         self.cost_function = nn.CrossEntropyLoss(reduction='sum')
@@ -481,9 +486,11 @@ class MultiClassBaseModel(nn.Module):
         return score
 
 
-    def get_conv_outshape(self, H_in, W_in, layer):
+    def save_conv_outshape(self, layer):
         """
-        Calculate height and width of output image after Conv2D or Pool2D operation
+        Calculate and save dimensions (channels, height, width) of Conv2D or Pool2D layer output
+        In other words calculate the new dimensions of input
+        This method should be always called after Conv2D or Pool2D operation
         Source: https://pytorch.org/docs/stable/generated/torch.nn.Conv2d.html
                 https://pytorch.org/docs/master/generated/torch.nn.MaxPool2d.html
         """
@@ -515,25 +522,29 @@ class MultiClassBaseModel(nn.Module):
         else:
             dilation_H, dilation_W = layer.dilation
 
-        # Calculate output height and weight
-        H_out = int(np.floor(1 + (H_in + 2*padding_H - dilation_H * (kernel_size_H-1) - 1) / stride_H))
-        W_out = int(np.floor(1 + (W_in + 2*padding_W - dilation_W * (kernel_size_W-1) - 1) / stride_W))
-        
-        # Print new dimensions
+        # Debug
         if self.setting.debug:
-            print('After {}: H={}, W={}'.format(layer._get_name(), H_out, W_out))
+            print('[Outshape BEFORE] Layer={}, Num of Channels={}, Height={}, Width={}'.format(layer._get_name(), self.in_channels, self.height, self.width))
 
-        return H_out, W_out
+        # Calculate output height and weight
+        self.height = int(np.floor(1 + (self.height + 2*padding_H - dilation_H * (kernel_size_H-1) - 1) / stride_H))
+        self.width = int(np.floor(1 + (self.width + 2*padding_W - dilation_W * (kernel_size_W-1) - 1) / stride_W))
+        
+        # Calculate the number of channels
+        if isinstance(layer, nn.Conv2d):
+            self.in_channels = layer.out_channels
 
-    def num_flat_features(self, x):
+        # Debug
+        if self.setting.debug:
+            print('[Outshape AFTER] Layer={}, Num of Channels={}, Height={}, Width={}'.format(layer._get_name(), self.in_channels, self.height, self.width))
+
+        return self.in_channels, self.height, self.width
+
+    def num_flat_features(self):
         """
-        Returns number of neurons/parameters from non-flat layer
+        Returns number of neurons/parameters from last non-flat layer
         """
-        dimensions = x.size()[1:]  # get all dimensions except the batch dimension
-        num_features = 1
-        for dim in dimensions:
-            num_features *= dim
-        return num_features
+        return self.in_channels * self.height * self.width
 
     def get_learning_rate(self):
         """
@@ -567,8 +578,11 @@ class MultiClassBaseModel(nn.Module):
         """
         # Create name and path
         if path is None:
-            path = self.create_checkpoint_path(suffix=suffix)
-
+            if self.model_path is None:
+                path = self.create_checkpoint_path(suffix=suffix)
+            else:
+                path = self.model_path
+                
         # Update checkpoint
         torch.save(checkpoint, path)
         return
@@ -580,7 +594,10 @@ class MultiClassBaseModel(nn.Module):
         """
         # Create name and path
         if path is None:
-            path = self.create_checkpoint_path(suffix=suffix, version=version)
+            if self.model_path is None:
+                path = self.create_checkpoint_path(suffix=suffix, version=version)
+            else:
+                path = self.model_path
 
         # Collect current states
         checkpoint = {
@@ -666,36 +683,34 @@ class ConvNet(MultiClassBaseModel):
 
     def __init__(self, setting):
         super().__init__(setting)
-        self.model_name = self.__class__.__name__
-        ch, h, w = self.setting.input_size
 
         # Features
         self.conv1 = nn.Conv2d(
-            in_channels=ch, 
+            in_channels=self.in_channels, 
             out_channels=32, 
             kernel_size=3)
-        h, w = self.get_conv_outshape(h, w, self.conv1)
+        self.save_conv_outshape(self.conv1)
 
         self.maxpool1 = nn.MaxPool2d(
             kernel_size=(2, 2),
             stride=(2, 2))
-        h, w = self.get_conv_outshape(h, w, self.maxpool1)
+        self.save_conv_outshape(self.maxpool1)
 
         self.conv2 = nn.Conv2d(
-            in_channels=32, 
+            in_channels=self.in_channels, 
             out_channels=64, 
             kernel_size=5,
             stride=2, 
             padding=1)
-        h, w = self.get_conv_outshape(h, w, self.conv2)
+        self.save_conv_outshape(self.conv2)
 
         self.maxpool2 = nn.MaxPool2d(
             kernel_size=2,
             stride=2)
-        h, w = self.get_conv_outshape(h, w, self.maxpool2)
+        self.save_conv_outshape(self.maxpool2)
 
         # Classifier
-        self.num_flatten = h * w * 64
+        self.num_flatten = self.num_flat_features()
         self.fc1 = nn.Linear(self.num_flatten, 2048)
         self.fc2 = nn.Linear(2048, self.setting.num_classes)
 
@@ -743,11 +758,12 @@ if __name__ == "__main__":
 
     # Create settings
     setting = Settings(
+        kind=0,
         input_size=(3, 32, 32),
         num_classes=10,
-        batch_size=512,
+        batch_size=64,
         batch_norm=False,
-        epochs=10,
+        epochs=3,
         learning_rate=0.001,
         lr_factor=0.1,
         lr_patience=5,
@@ -776,11 +792,11 @@ if __name__ == "__main__":
     convnet.print_summary()
 
     # Train model
-    #convnet.fit(trainset, validset)
+    convnet.fit(trainset, validset)
 
     # Plot training performance
     plot = PlotMngr()
-    #plot.performance(convnet.epoch_results)
+    plot.performance(convnet.epoch_results)
 
     # Load best model
     states = convnet.load_checkpoint()

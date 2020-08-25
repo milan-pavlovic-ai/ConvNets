@@ -327,9 +327,9 @@ if __name__ == "__main__":
     plot.confusion_matrix(conf_matrix)
 
     # Hyperparameters
-    setting1 = Settings(input_size=(3, 32, 32), num_classes=10, batch_size=32, learning_rate=0.001, lr_factor=0.1, lr_patience=20, early_stop=True, es_patience=25)
-    setting2 = Settings(input_size=(3, 32, 32), num_classes=10, batch_size=128, learning_rate=0.01, lr_factor=0.3, lr_patience=19, early_stop=True, es_patience=27)
-    setting3 = Settings(input_size=(3, 32, 32), num_classes=10, batch_size=64, learning_rate=0.01, lr_factor=0.5, lr_patience=25, early_stop=False, es_patience=0)
+    setting1 = Settings(kind=0, input_size=(3, 32, 32), num_classes=10, batch_size=32, learning_rate=0.001, lr_factor=0.1, lr_patience=20, early_stop=True, es_patience=25)
+    setting2 = Settings(kind=0, input_size=(3, 32, 32), num_classes=10, batch_size=128, learning_rate=0.01, lr_factor=0.3, lr_patience=19, early_stop=True, es_patience=27)
+    setting3 = Settings(kind=0, input_size=(3, 32, 32), num_classes=10, batch_size=64, learning_rate=0.01, lr_factor=0.5, lr_patience=25, early_stop=False, es_patience=0)
     results = {
         'scores': [56, 71, 65],
         'hparams': [setting1.get_hparams(), setting2.get_hparams(), setting3.get_hparams()],

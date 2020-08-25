@@ -23,9 +23,10 @@ class Tuner:
         self.setting = setting
         
         # Best model information
-        self.version = int(t.time())
         self.suffix = 'tuned'
-        self.best_model_name = '{}-{}-{}.tar'.format(self.model_class.__name__, self.version, self.suffix)
+        self.version = int(t.time())
+        model_name = self.model_class.__name__ + str(self.setting.kind)
+        self.best_model_name = '{}-{}-{}.tar'.format(model_name, self.version, self.suffix)
         self.best_model_path = os.path.join(DataMngr.OUTPUT_DIR, self.best_model_name)
         
         # Available after tuning
@@ -132,7 +133,7 @@ if __name__ == "__main__":
         batch_size      = [32, 64, 128, 256, 512, 1024],
         batch_norm      = [False],
         # Epoch
-        epochs          = [30],
+        epochs          = [10],
         # Learning rate
         learning_rate   = list(np.logspace(np.log10(0.001), np.log10(0.1), base=10, num=1000)),
         lr_factor       = list(np.logspace(np.log10(0.01), np.log10(1), base=10, num=1000)),
@@ -151,17 +152,21 @@ if __name__ == "__main__":
         grad_clip_norm  = [False],
         gc_max_norm     = [1],
         grad_clip_value = [False],
-        gc_value        = [10]
+        gc_value        = [10],
+        # Initialization
+        init_params     = [True]
     )
 
     # Create settings
     setting = Settings(
+        kind=0,
         input_size=(3, 32, 32),
         num_classes=10,
         distrib=distrib,
         sanity_check=False,
         debug=False)
 
+    '''
     # Load checkpoint
     model = ConvNet(setting)
     setting.device.move(model)
@@ -169,12 +174,13 @@ if __name__ == "__main__":
     plot = PlotMngr()
     plot.performance(states['epoch_results'])
     plot.hyperparameters(states['tuning_results'], setting.get_hparams_names())
+    '''
 
     # Create tuner
     tuner = Tuner(ConvNet, setting)
 
     # Search for best model in tuning process
-    model, tuning_results = tuner.process(num_iter=5)
+    model, tuning_results = tuner.process(num_iter=3)
 
     # Plot training performance of best model
     plot = PlotMngr()

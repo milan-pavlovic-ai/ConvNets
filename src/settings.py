@@ -34,6 +34,7 @@ class HyperParams:
         self.gc_max_norm = None
         self.grad_clip_value = None
         self.gc_value = None
+        self.init_params = None
         return
 
     def show(self):
@@ -109,6 +110,9 @@ class HyperParamsDistrib(HyperParams):
     DEF_GRAD_CLIP_VALUE = [False, True]
     DEF_GC_VALUE = stats.uniform(0.01, 10)
 
+    # Initialization
+    DEF_INIT_PARAMS = [False, True]
+
     def __init__(self,
         batch_size=None,
         batch_norm=None,
@@ -125,11 +129,10 @@ class HyperParamsDistrib(HyperParams):
         grad_clip_norm = None,
         gc_max_norm = None,
         grad_clip_value = None,
-        gc_value = None):
-        """
-        Initialization of hyper-parameters distributions
-        """
-        super(HyperParamsDistrib, self).__init__()
+        gc_value = None,
+        init_params = None):
+
+        super().__init__()
 
         # Distributions
         self.batch_size = batch_size
@@ -148,6 +151,7 @@ class HyperParamsDistrib(HyperParams):
         self.gc_max_norm = gc_max_norm
         self.grad_clip_value = grad_clip_value
         self.gc_value = gc_value
+        self.init_params = init_params
 
         # Set default values for None
         for attrib, value in self.__dict__.items():
@@ -205,7 +209,11 @@ class Settings(HyperParams):
     DEF_DEBUG = False
     DEF_DEVICE = DeviceMngr()
 
+    # Initialization
+    DEF_INIT_PARAMS = True
+
     def __init__(self,
+        kind,
         input_size,
         num_classes,
         batch_size=None,
@@ -224,16 +232,16 @@ class Settings(HyperParams):
         gc_max_norm = None,
         grad_clip_value = None,
         gc_value = None,
+        init_params = None,
         distrib=None,
         sanity_check=None,
         debug=None,
         device=None):
-        """
-        Initialization of settings
-        """
-        super(Settings, self).__init__()
+
+        super().__init__()
 
         # Custom
+        self.kind = kind
         self.input_size = input_size
         self.num_classes = num_classes
 
@@ -254,6 +262,7 @@ class Settings(HyperParams):
         self.gc_max_norm = gc_max_norm
         self.grad_clip_value = grad_clip_value
         self.gc_value = gc_value
+        self.init_params = init_params
 
         # Hyper-parameters distributions
         self.distrib = distrib
@@ -297,6 +306,7 @@ if __name__ == "__main__":
     distrib.show()
 
     setting1 = Settings(
+        kind=0,
         input_size=(3, 32, 32),
         num_classes=10,
         batch_size=1024,
@@ -306,6 +316,7 @@ if __name__ == "__main__":
     print(hparams)
 
     setting2 = Settings(
+        kind=0,
         input_size=(3, 64, 64),
         num_classes=10,
         batch_size=None,
@@ -324,6 +335,7 @@ if __name__ == "__main__":
         gc_max_norm = None,
         grad_clip_value = None,
         gc_value = None,
+        init_params=None,
         distrib=None,
         sanity_check=None,
         debug=None,
@@ -340,6 +352,7 @@ if __name__ == "__main__":
         'grad_clip_norm':True,
         'gc_max_norm': 0.33,
         'grad_clip_value':False,
-        'gc_value':0.25})
+        'gc_value':0.25,
+        'init_params':False})
     setting2.show()
 
