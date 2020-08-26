@@ -210,7 +210,6 @@ class Settings(HyperParams):
     DEF_DEVICE = DeviceMngr()
     DEF_NUM_WORKERS = 15
     DEF_MIXED_PRECISION = False
-    DEF_TIME_TRAIN = False
 
     # Initialization
     DEF_INIT_PARAMS = True
@@ -241,8 +240,7 @@ class Settings(HyperParams):
         debug=None,
         device=None,
         num_workers=None,
-        mixed_precision=None,
-        time_train=None):
+        mixed_precision=None):
 
         super().__init__()
 
@@ -279,7 +277,6 @@ class Settings(HyperParams):
         self.device = device
         self.num_workers = num_workers
         self.mixed_precision = mixed_precision
-        self.time_train = time_train
 
         # Set default values for None
         for attrib, value in self.__dict__.items():
@@ -361,8 +358,7 @@ if __name__ == "__main__":
         debug=None,
         device=None,
         num_workers=None,
-        mixed_precision=None,
-        time_train=None)
+        mixed_precision=None)
     setting2.show()
     hparams = setting2.get_hparams()
     print(hparams)

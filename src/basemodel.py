@@ -14,6 +14,7 @@ from tqdm import tqdm
 from torchsummary import summary
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.nn.utils import clip_grad_norm_, clip_grad_value_
+from torch.cuda import amp
 from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
 
 from mngrdevice import DeviceMngr
@@ -43,6 +44,7 @@ class MultiClassBaseModel(nn.Module):
         self.cost_function = nn.CrossEntropyLoss(reduction='sum')
         self.optimizer = None
         self.lr_scheduler = None
+        self.grad_scaler = None
         self.epoch_results = None
 
         # Available after evaluation
@@ -72,6 +74,10 @@ class MultiClassBaseModel(nn.Module):
             factor=self.setting.lr_factor,
             patience=self.setting.lr_patience,
             verbose=True)
+
+        # Set gradient scaler
+        # Creates a GradScaler once at the beginning of training
+        self.grad_scaler = amp.GradScaler()       
         return
 
 
@@ -199,6 +205,9 @@ class MultiClassBaseModel(nn.Module):
     def train_model(self, dataloader):
         """
         Train model with given dataset
+
+        About mixed precision
+            Soure: https://pytorch.org/docs/stable/notes/amp_examples.html
         """
         print('=== Training Phase ===')
         self.train()
@@ -210,17 +219,42 @@ class MultiClassBaseModel(nn.Module):
             # Clear the existing gradients though, otherwise gradients will be accumulated to follow gradients
             self.optimizer.zero_grad()
 
-            # Forward propagation with loss and score calculation
-            loss, score = self.training_step(batch)
+            # Training with mixed precision
+            if self.setting.mixed_precision:
 
-            # Backpropagate the error, calculate the gradients
-            loss.backward()
+                # Runs the forward pass with autocasting, including loss and score calculation
+                with amp.autocast():
+                    loss, score = self.training_step(batch)
 
-            # Gradient clipping
-            self.gradient_clipping()
+                # Scales loss and calls backward() on scaled loss to create scaled gradients
+                # Backward ops run in the same dtype autocast chose for corresponding forward ops
+                self.grad_scaler.scale(loss).backward()
 
-            # Update parameters using learning rate and calculated gradients
-            self.optimizer.step()
+                # Unscales the gradients of optimizer's assigned params in-place
+                self.grad_scaler.unscale_(self.optimizer)
+                
+                # Since the gradients of optimizer's assigned params are unscaled, clips as usual
+                self.gradient_clipping()
+
+                # If these gradients do not contain infs or NaNs, optimizer.step() is then called, otherwise, optimizer.step() is skipped
+                self.grad_scaler.step(self.optimizer)
+
+                # Updates the scale for next iteration
+                self.grad_scaler.update()
+
+            # Training with single precision
+            else:
+                # Forward propagation with loss and score calculation
+                loss, score = self.training_step(batch)
+
+                # Backpropagate the error, calculate the gradients
+                loss.backward()
+
+                # Gradient clipping
+                self.gradient_clipping()
+
+                # Update parameters using learning rate and calculated gradients
+                self.optimizer.step()
 
             # Add accumulated losses and scores from this batch
             epoch_loss += loss.item()
@@ -253,8 +287,18 @@ class MultiClassBaseModel(nn.Module):
         epoch_score = 0
 
         for batch in tqdm(dataloader):
-            # Forward propagation with loss and score calculation
-            loss, score = self.validation_step(batch)
+
+            # Evaluate with mixed precision
+            if self.setting.mixed_precision:
+
+                # Runs the forward pass with autocasting, including loss and score calculation
+                with amp.autocast():
+                    loss, score = self.validation_step(batch)
+
+            # Evaluate with single precision
+            else:
+                # Forward propagation with loss and score calculation
+                loss, score = self.validation_step(batch)
 
             # Add accumulated losses and scores from this batch
             epoch_loss += loss.item()
@@ -359,7 +403,7 @@ class MultiClassBaseModel(nn.Module):
                 self.lr_scheduler.step(valid_score)
             if curr_learning_rate != self.get_learning_rate():
                 self.load_state_dict(best_params)
-                print('No improvement after {} consecutive epochs, the learning rate is changed and training is continued with best parameters'.format(self.setting.lr_patience))
+                print('No improvement after {} consecutive epochs, the learning rate is changed and training is continued with best parameters'.format(self.setting.lr_patience + 1))
 
             # Early stopping
             if self.setting.early_stop and self.setting.es_patience + 1 == epochs_no_improve:
@@ -379,26 +423,6 @@ class MultiClassBaseModel(nn.Module):
         return self
     
     
-    def inference_time(self, elapsed_times):
-        """
-        Print results of inference time
-        """
-        # TODO fix measurement
-        elapsed_times = np.array(elapsed_times)
-        device_type = self.setting.device.device.type
-        batch_size = self.setting.batch_size
-
-        total_time = np.sum(elapsed_times) * 1000
-        mean_time = np.mean(elapsed_times / batch_size) * 1000
-        std_time = np.std(elapsed_times / batch_size) * 1000
-
-        print('\n')
-        print('Inference time')
-        print('\twith using device {} and with batch size {}'.format(device_type, batch_size))
-        print('\tEntire dataset: \t{:.2f}s'.format(total_time))
-        print('\tSingle instance: \t{:.2f}s ± {:.2f}s'.format(mean_time, std_time))
-        return
-
     def eval_score(self, y_targets, y_preds):
         """
         Returns score of a model for a given target and predicted values. 
@@ -433,12 +457,8 @@ class MultiClassBaseModel(nn.Module):
             inputs, targets = self.setting.device.move(batch)
 
             # Calculate predictions
-            start_time = t.time()   # TODO Fix measurement
-
             outputs = self(inputs)
             probs, predictions = torch.max(outputs, dim=1)
-
-            elapsed_times.append(t.time() - start_time)
 
             # Move to CPU and convert to numpy array
             predictions = self.setting.device.move_to(predictions, 'cpu').numpy()
@@ -475,15 +495,59 @@ class MultiClassBaseModel(nn.Module):
             dtype=int)
         print('', 'Confusion matrix', '(rows = Actual, columns = Predicted)', '', self.confusion_matrix, sep='\n')
 
-        # Inference time
-        self.inference_time(elapsed_times)
-
         # Single score
         score = self.eval_score(y_targets, y_preds)
 
         print('\n=== EVALUATION IS FINISHED ===\n')
 
         return score
+
+
+    def inference_time(self, elapsed_times):
+        """
+        Print results of inference time
+        """
+        # TODO fix measurement
+        elapsed_times = np.array(elapsed_times)
+        device_type = self.setting.device.device.type
+        batch_size = self.setting.batch_size
+
+        total_time = np.sum(elapsed_times) * 1000
+        mean_time = np.mean(elapsed_times / batch_size) * 1000
+        std_time = np.std(elapsed_times / batch_size) * 1000
+
+        print('\n')
+        print('Inference time')
+        print('\twith using device {} and with batch size {}'.format(device_type, batch_size))
+        print('\tEntire dataset: \t{:.2f}s'.format(total_time))
+        print('\tSingle instance: \t{:.2f}s ± {:.2f}s'.format(mean_time, std_time))
+        return
+
+    def test(self, dataloader):
+        """
+        Test model on given test dataset
+
+        Metrics
+            1] Accuracy
+                This metric is valid only for a balanced dataset. 
+                The given set will be divided into S subsets and the model will be tested on each subset by calculating its accuracy.
+                Each mini-batch must be same for each model, the same seed have to be used to keep order of instances in batch and order of batches.
+                Returns sample of the accuracy of size S which will be used for statistical test in model comparison.
+            2] Inference time
+                Latency - Average inference time per image, it is possible to do statistical test
+                Throughput - Number of images per second for given batch size in inference process. Use same batch size as for training process.
+                    Throughput = Number of instances / Total time in seconds (number of images per second)
+                The same order of images in batch and same order batches guaranties valid results.
+                Returns sample and single number or tuple of 2 single number
+            3] Model Complexity
+                Returns single number as total number of parameters
+            4] Computational Complexity
+                Returns single number as total number of FLOPS in model
+            5] Memory usage
+                Returns tuple of different types of memory: Input, Model, Forward/Backward and Total memory usage
+        """
+        # TODO similar like evaluation
+        return
 
 
     def save_conv_outshape(self, layer):
@@ -602,7 +666,7 @@ class MultiClassBaseModel(nn.Module):
         # Collect current states
         checkpoint = {
             'epoch_results': self.epoch_results,                # information about each epoch
-            'hparams': self.setting.get_hparams(),              # model hyper-parameters
+            'setting': self.setting.to_dict(),                  # model settings
             'model': self.state_dict(),                         # model parameters
             'optimizer': self.optimizer.state_dict(),           # optimizer parameters
             'lr_scheduler': self.lr_scheduler.state_dict()}     # lr_schduler parameters
@@ -652,7 +716,7 @@ class MultiClassBaseModel(nn.Module):
         self.init_optimizer()
 
         # Load parameters for each component
-        self.setting.load_values(checkpoint['hparams'])
+        self.setting.load_values(checkpoint['setting'])
         self.load_state_dict(checkpoint['model'])
         self.optimizer.load_state_dict(checkpoint['optimizer'])
         self.lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
@@ -665,6 +729,7 @@ class MultiClassBaseModel(nn.Module):
         """
         Print summary of model including layers, shapes and number of parameters
         """
+        print('', self.model_name, sep='\n')
         model_summary = summary(self, 
             input_size=self.setting.input_size, 
             batch_size=self.setting.batch_size,
@@ -762,7 +827,7 @@ if __name__ == "__main__":
         input_size=(3, 32, 32),
         num_classes=10,
         # Batch
-        batch_size=64,
+        batch_size=256,
         batch_norm=False,
         # Epoch
         epochs=3,
@@ -790,11 +855,10 @@ if __name__ == "__main__":
         # Distributions
         distrib=None,
         # Environment
-        sanity_check=True,
+        sanity_check=False,
         debug=False,
         num_workers=15,
-        mixed_precision=False,
-        time_train=False)
+        mixed_precision=True)
 
     # Load data
     data = DataMngr(setting)

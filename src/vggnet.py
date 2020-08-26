@@ -137,19 +137,19 @@ def process_fit():
         input_size=(3, 32, 32),
         num_classes=10,
         # Batch
-        batch_size=256,
+        batch_size=512,
         batch_norm=True,
         # Epoch
         epochs=5,
         # Learning rate
-        learning_rate=0.1,
+        learning_rate=0.01,
         lr_factor=0.1,
         lr_patience=10,
         # Regularization
         weight_decay=1E-5,
         dropout_rate=0.5,
         # Metric
-        loss_optim=True,
+        loss_optim=False,
         # Data
         data_augment=False,
         # Early stopping
@@ -157,9 +157,9 @@ def process_fit():
         es_patience=15,
         # Gradient clipping
         grad_clip_norm=False,
-        gc_max_norm=100,
+        gc_max_norm=1,
         grad_clip_value=False,
-        gc_value=100,
+        gc_value=1,
         # Initialization
         init_params=True,
         # Distributions
@@ -168,8 +168,7 @@ def process_fit():
         sanity_check=False,
         debug=False,
         num_workers=15,
-        mixed_precision=False,
-        time_train=False)
+        mixed_precision=False)
 
     # Load data
     data = DataMngr(setting)
@@ -205,24 +204,24 @@ def process_tune():
     # Hyper-parameters search space
     distrib = HyperParamsDistrib(
         # Batch
-        batch_size      = [32, 64, 128, 256, 512, 1024],
-        batch_norm      = [False],
+        batch_size      = [32, 64, 128, 256],
+        batch_norm      = [True],
         # Epoch
-        epochs          = [3],
+        epochs          = [100],
         # Learning rate
-        learning_rate   = list(np.logspace(np.log10(0.001), np.log10(0.1), base=10, num=1000)),
+        learning_rate   = list(np.logspace(np.log10(0.0001), np.log10(0.01), base=10, num=1000)),
         lr_factor       = list(np.logspace(np.log10(0.01), np.log10(1), base=10, num=1000)),
-        lr_patience     = list(np.arange(1, 7)),
+        lr_patience     = list(np.arange(10, 20)),
         # Regularization
         weight_decay    = list(np.logspace(np.log10(1E-6), np.log10(0.5), base=10, num=1000)),
         dropout_rate    = stats.uniform(0, 0.9),
         # Metric
-        loss_optim      = [False, True],
+        loss_optim      = [False],
         # Data
         data_augment    = [False],
         # Early stopping
-        early_stop      = [False, True],
-        es_patience     = list(np.arange(7, 12)),
+        early_stop      = [True],
+        es_patience     = list(np.arange(20, 30)),
         # Gradient clipping
         grad_clip_norm  = [False],
         gc_max_norm     = [1],
@@ -241,24 +240,36 @@ def process_tune():
         sanity_check=False,
         debug=False,
         num_workers=15,
-        mixed_precision=False,
-        time_train=False)
+        mixed_precision=True)
 
-    '''
+    # Load data for evaluation
+    data = DataMngr(setting)
+    trainset = data.load_train()
+    validset = data.load_valid()
+
     # Load checkpoint
-    model = VGGNet(setting, kind=16)
-    setting.device.move(model)
-    states = model.load_checkpoint(path='data/output/ConvNet-1598124935-tuned.tar')
-    plot = PlotMngr()
-    plot.performance(states['epoch_results'])
-    plot.hyperparameters(states['tuning_results'], setting.get_hparams_names())
-    '''
+    load_checkpoint = True
+    if load_checkpoint:
+        model = VGGNet(setting)
+        setting.device.move(model)
+        states = model.load_checkpoint(path='data/output/VGGNet16-1598387465-tuned.tar')
+
+        plot = PlotMngr()
+        plot.performance(states['epoch_results'])
+
+        model.evaluate(trainset)
+        plot.confusion_matrix(model.confusion_matrix)
+
+        model.evaluate(validset)
+        plot.confusion_matrix(model.confusion_matrix)
+
+        plot.hyperparameters(states['tuning_results'], setting.get_hparams_names())
 
     # Create tuner
     tuner = Tuner(VGGNet, setting)
 
     # Search for best model in tuning process
-    model, tuning_results = tuner.process(num_iter=3)
+    model, tuning_results = tuner.process(num_iter=5)
 
     # Plot training performance of best model
     plot = PlotMngr()
@@ -266,11 +277,6 @@ def process_tune():
 
     # Plot tuning process
     plot.hyperparameters(tuning_results, setting.get_hparams_names())
-
-    # Load data for evaluation
-    data = DataMngr(setting)
-    trainset = data.load_train()
-    validset = data.load_valid()
 
     # Evaluate model on traning set
     model.evaluate(trainset)
@@ -285,7 +291,7 @@ def process_tune():
 
 if __name__ == "__main__":
     
-    process_fit()
+    #process_fit()
 
     process_tune()
 

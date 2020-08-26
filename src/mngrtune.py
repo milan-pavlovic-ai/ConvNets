@@ -24,7 +24,7 @@ class Tuner:
         
         # Best model information
         self.suffix = 'tuned'
-        self.version = int(t.time())
+        self.version = int(t.time()) - 1
         model_name = self.model_class.__name__ + str(self.setting.kind)
         self.best_model_name = '{}-{}-{}.tar'.format(model_name, self.version, self.suffix)
         self.best_model_path = os.path.join(DataMngr.OUTPUT_DIR, self.best_model_name)
@@ -114,6 +114,10 @@ class Tuner:
         best_checkpoint['tuning_results'] = self.results                           
         model.update_checkpoint(best_checkpoint, path=self.best_model_path)
         
+        # Best model information
+        print('Model with best score of {} is achieved with setting:\n'.format(best_score))
+        model.setting.show()
+
         return model, self.results
 
     def process_cv(self, cv=5):
@@ -154,7 +158,7 @@ if __name__ == "__main__":
         grad_clip_value = [False],
         gc_value        = [10],
         # Initialization
-        init_params     = [True]
+        init_params     = [False, True]
     )
 
     # Create settings
@@ -164,17 +168,30 @@ if __name__ == "__main__":
         num_classes=10,
         distrib=distrib,
         sanity_check=False,
-        debug=False)
+        debug=False,
+        mixed_precision=False)
 
-    '''
+    # Load data for evaluation
+    data = DataMngr(setting)
+    trainset = data.load_train()
+    validset = data.load_valid()
+
     # Load checkpoint
-    model = ConvNet(setting)
-    setting.device.move(model)
-    states = model.load_checkpoint(path='data/output/ConvNet-1598124935-tuned.tar')
-    plot = PlotMngr()
-    plot.performance(states['epoch_results'])
-    plot.hyperparameters(states['tuning_results'], setting.get_hparams_names())
-    '''
+    load_checkpoint = True
+    if load_checkpoint:
+        model = ConvNet(setting)
+        setting.device.move(model)
+        states = model.load_checkpoint(path='data/output/ConvNet0-1598410395-tuned.tar')
+
+        plot = PlotMngr()
+        plot.performance(states['epoch_results'])
+
+        model.evaluate(trainset)
+        plot.confusion_matrix(model.confusion_matrix)
+
+        model.evaluate(validset)
+        plot.confusion_matrix(model.confusion_matrix)
+        plot.hyperparameters(states['tuning_results'], setting.get_hparams_names())
 
     # Create tuner
     tuner = Tuner(ConvNet, setting)
@@ -188,11 +205,6 @@ if __name__ == "__main__":
 
     # Plot tuning process
     plot.hyperparameters(tuning_results, setting.get_hparams_names())
-
-    # Load data for evaluation
-    data = DataMngr(setting)
-    trainset = data.load_train()
-    validset = data.load_valid()
 
     # Evaluate model on traning set
     model.evaluate(trainset)
