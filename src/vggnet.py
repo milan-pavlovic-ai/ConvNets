@@ -140,7 +140,7 @@ def process_fit():
         batch_size=512,
         batch_norm=True,
         # Epoch
-        epochs=5,
+        epochs=3,
         # Learning rate
         learning_rate=0.01,
         lr_factor=0.1,
@@ -165,10 +165,12 @@ def process_fit():
         # Distributions
         distrib=None,
         # Environment
+        num_workers=16,
+        mixed_precision=True,
+        test_sample_size=90,
+        seed=21,
         sanity_check=False,
-        debug=False,
-        num_workers=15,
-        mixed_precision=False)
+        debug=False)
 
     # Load data
     data = DataMngr(setting)
@@ -195,6 +197,10 @@ def process_fit():
     model.evaluate(validset)
     plot.confusion_matrix(model.confusion_matrix)
 
+    # Final evaluation on test set
+    testset = data.load_test()
+    scores, times, fps = model.test(testset)
+    plot.confusion_matrix(model.confusion_matrix)
     return
 
 def process_tune():
@@ -204,24 +210,24 @@ def process_tune():
     # Hyper-parameters search space
     distrib = HyperParamsDistrib(
         # Batch
-        batch_size      = [32, 64, 128, 256],
+        batch_size      = [256],
         batch_norm      = [True],
         # Epoch
-        epochs          = [100],
+        epochs          = [50],
         # Learning rate
         learning_rate   = list(np.logspace(np.log10(0.0001), np.log10(0.01), base=10, num=1000)),
         lr_factor       = list(np.logspace(np.log10(0.01), np.log10(1), base=10, num=1000)),
-        lr_patience     = list(np.arange(10, 20)),
+        lr_patience     = list(np.arange(10, 12)),
         # Regularization
-        weight_decay    = list(np.logspace(np.log10(1E-6), np.log10(0.5), base=10, num=1000)),
-        dropout_rate    = stats.uniform(0, 0.9),
+        weight_decay    = list(np.logspace(np.log10(1E-3), np.log10(0.5), base=10, num=1000)),
+        dropout_rate    = stats.uniform(0.3, 0.65),
         # Metric
         loss_optim      = [False],
         # Data
         data_augment    = [False],
         # Early stopping
         early_stop      = [True],
-        es_patience     = list(np.arange(20, 30)),
+        es_patience     = list(np.arange(12, 15)),
         # Gradient clipping
         grad_clip_norm  = [False],
         gc_max_norm     = [1],
@@ -237,10 +243,12 @@ def process_tune():
         input_size=(3, 32, 32),
         num_classes=10,
         distrib=distrib,
+        num_workers=16,
+        mixed_precision=True,
+        test_sample_size=90,
+        seed=21,
         sanity_check=False,
-        debug=False,
-        num_workers=15,
-        mixed_precision=True)
+        debug=False)
 
     # Load data for evaluation
     data = DataMngr(setting)
@@ -248,11 +256,11 @@ def process_tune():
     validset = data.load_valid()
 
     # Load checkpoint
-    load_checkpoint = True
+    load_checkpoint = False
     if load_checkpoint:
         model = VGGNet(setting)
         setting.device.move(model)
-        states = model.load_checkpoint(path='data/output/VGGNet16-1598387465-tuned.tar')
+        states = model.load_checkpoint(path='data/output/VGGNet16-1598459286-tuned.tar')
 
         plot = PlotMngr()
         plot.performance(states['epoch_results'])
@@ -269,7 +277,7 @@ def process_tune():
     tuner = Tuner(VGGNet, setting)
 
     # Search for best model in tuning process
-    model, tuning_results = tuner.process(num_iter=5)
+    model, tuning_results = tuner.process(num_iter=3)
 
     # Plot training performance of best model
     plot = PlotMngr()
@@ -286,6 +294,10 @@ def process_tune():
     model.evaluate(validset)
     plot.confusion_matrix(model.confusion_matrix)
 
+    # Final evaluation on test set
+    testset = data.load_test()
+    scores, times, fps = model.test(testset)
+    plot.confusion_matrix(model.confusion_matrix)
     return
 
 

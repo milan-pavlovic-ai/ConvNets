@@ -20,6 +20,7 @@ from sklearn.metrics import classification_report, confusion_matrix, accuracy_sc
 from mngrdevice import DeviceMngr
 from mngrdata import DataMngr
 from mngrplot import PlotMngr
+from mngrutility import UtilityMngr
 from settings import Settings, HyperParamsDistrib
 
 
@@ -354,10 +355,14 @@ class MultiClassBaseModel(nn.Module):
         best_params = copy.deepcopy(self.state_dict()) 
         epochs_no_improve = 0
 
-        self.epoch_results = {'train_loss':[], 'train_score':[], 'valid_loss':[], 'valid_score':[], 'learning_rate':[], 'train_epochs':0}
+        self.epoch_results = {'train_loss':[], 'train_score':[], 'valid_loss':[], 'valid_score':[], 'learning_rate':[], 'train_epochs':0, 'train_time':0}
 
         if not resuming:
             self.init_optimizer()
+
+        # Start time
+        torch.cuda.synchronize()
+        start_time = t.perf_counter()
 
         # Training process
         print('\n=== START TRAINING ===\n')
@@ -412,6 +417,12 @@ class MultiClassBaseModel(nn.Module):
 
             print('\n')
 
+        # Training time
+        torch.cuda.synchronize()
+        train_time = t.perf_counter() - start_time
+        self.epoch_results['train_time'] = train_time
+        print('Training time: {:.3f}s'.format(train_time))
+
         # Update epoch results after best model epoch
         best_checkpoint = self.load_checkpoint(path=self.model_path)                               # load best model environment
         self.epoch_results['train_epochs'] = best_checkpoint['epoch_results']['train_epochs']      # set number of trained epochs for best model
@@ -422,14 +433,15 @@ class MultiClassBaseModel(nn.Module):
 
         return self
     
-    
-    def eval_score(self, y_targets, y_preds):
+
+    def eval_score(self, y_targets, y_preds, info=True):
         """
         Returns score of a model for a given target and predicted values. 
         This score will be used in the hyper-parameter tuning process to determine the model with better hyper-parameters.
         """
         accuracy = accuracy_score(y_targets, y_preds)
-        print('', 'Accuracy: {:.2f}%'.format(accuracy*100), sep='\n')
+        if info:
+            print('', 'Accuracy: {:.2f}%'.format(accuracy*100), sep='\n')
         return accuracy
 
     @torch.no_grad()
@@ -443,11 +455,11 @@ class MultiClassBaseModel(nn.Module):
         # This will change behaviour of layers such as dropout and batch-normalization
         self.eval() 
 
-        elapsed_times = []
+        # Initialization
         y_preds = np.array([], dtype=int)
         y_targets = np.array([], dtype=int)
         self.class_names = dataloader.dataset.classes
-              
+
         # Evaluate on given dataset
         print('\n=== START EVALUATION ===\n')
 
@@ -503,31 +515,33 @@ class MultiClassBaseModel(nn.Module):
         return score
 
 
-    def inference_time(self, elapsed_times):
+    def inference_time(self, total_times, num_instances):
         """
         Print results of inference time
         """
-        # TODO fix measurement
-        elapsed_times = np.array(elapsed_times)
+        total_times = np.array(total_times)
         device_type = self.setting.device.device.type
         batch_size = self.setting.batch_size
 
-        total_time = np.sum(elapsed_times) * 1000
-        mean_time = np.mean(elapsed_times / batch_size) * 1000
-        std_time = np.std(elapsed_times / batch_size) * 1000
+        entire_time = np.sum(total_times)
+        mean_time = np.mean(total_times / batch_size)
+        std_time = np.std(total_times / batch_size)
+        images_per_sec = num_instances / entire_time
 
         print('\n')
         print('Inference time')
         print('\twith using device {} and with batch size {}'.format(device_type, batch_size))
-        print('\tEntire dataset: \t{:.2f}s'.format(total_time))
-        print('\tSingle instance: \t{:.2f}s ± {:.2f}s'.format(mean_time, std_time))
-        return
+        print('\tEntire dataset: \t{:.2f}s'.format(entire_time))
+        print('\tSingle image: \t\t{:.3f}s ± {:.3f}s'.format(mean_time, std_time))
+        print('\tImages per second: \t{:.3f}'.format(images_per_sec))
+
+        return entire_time, mean_time, std_time, images_per_sec
 
     def test(self, dataloader):
         """
         Test model on given test dataset
 
-        Metrics
+        About Metrics
             1] Accuracy
                 This metric is valid only for a balanced dataset. 
                 The given set will be divided into S subsets and the model will be tested on each subset by calculating its accuracy.
@@ -536,18 +550,115 @@ class MultiClassBaseModel(nn.Module):
             2] Inference time
                 Latency - Average inference time per image, it is possible to do statistical test
                 Throughput - Number of images per second for given batch size in inference process. Use same batch size as for training process.
-                    Throughput = Number of instances / Total time in seconds (number of images per second)
+                    Throughput (number of images per second) = Number of instances / Total time in seconds 
                 The same order of images in batch and same order batches guaranties valid results.
-                Returns sample and single number or tuple of 2 single number
+                Returns sample and single number
             3] Model Complexity
-                Returns single number as total number of parameters
+                Total number of parameters
             4] Computational Complexity
-                Returns single number as total number of FLOPS in model
+                Total number of FLOPS in model
             5] Memory usage
-                Returns tuple of different types of memory: Input, Model, Forward/Backward and Total memory usage
+                Input, Model, Forward/Backward and Total memory usage
+
+        About time measurement
+            Source: https://pytorch.org/docs/master/cuda.html?highlight=cuda event#torch.cuda.Event
+                    https://deci.ai/the-correct-way-to-measure-inference-time-of-deep-neural-networks/
         """
-        # TODO similar like evaluation
-        return
+        # This will change behaviour of layers such as dropout and batch-normalization
+        self.eval() 
+
+        # Initialization
+        y_preds = np.array([], dtype=int)
+        y_targets = np.array([], dtype=int)
+        self.class_names = dataloader.dataset.classes
+
+        total_times = []
+        start_time = torch.cuda.Event(enable_timing=True)
+        end_time = torch.cuda.Event(enable_timing=True)
+
+        # Evaluate on given dataset
+        print('\n=== START TESTING ===\n')
+
+        # Warm-up GPU session, initialize GPU and switch into full power state
+        repetitions = 50
+        bs, (ch, h, w) = self.setting.batch_size, self.setting.input_size
+        rand_input = self.setting.device.move(torch.randn(bs, ch, h, w, dtype=torch.float))
+        for _ in range(repetitions):
+            _ = self(rand_input)
+
+        # Set reproducible behaviour 
+        UtilityMngr.set_reproducible_mode(seed=self.setting.seed)
+
+        for batch in tqdm(dataloader):
+
+            # Send batch data to device (GPU) and unpack it
+            inputs, targets = self.setting.device.move(batch)
+
+            # Start measuring time on GPU
+            start_time.record()
+
+            # Calculate predictions
+            outputs = self(inputs)
+            probs, predictions = torch.max(outputs, dim=1)
+
+            # End measuring time on GPU
+            end_time.record()
+            torch.cuda.synchronize()                        # wait GPU to synchronize with CPU
+            total_times += [start_time.elapsed_time(end_time)]
+
+            # Move to CPU and convert to numpy array
+            predictions = self.setting.device.move_to(predictions, 'cpu').numpy()
+            y_preds = np.concatenate([y_preds, predictions], axis=0)
+
+            targets = self.setting.device.move_to(targets, 'cpu').numpy()
+            y_targets = np.concatenate([y_targets, targets], axis=0)
+
+            # Debugging
+            if self.setting.debug:
+                print('Shape of predictions:', predictions.shape)
+                print('Predictions:', predictions, sep='\n')
+                print('Shape of y_preds:', y_preds.shape)
+                print('Y_preds:', y_preds, sep='\n')
+
+                print('Shape of targets:', targets.shape)
+                print('Targets:', targets, sep='\n')
+                print('Shape of y_targets:', y_targets.shape)
+                print('Y_targets:', y_targets, sep='\n')
+  
+            # Perform only one batch in sanity-check mode
+            if self.setting.sanity_check:
+                break
+
+        # Classification report
+        self.classification_report = classification_report(y_targets, y_preds, target_names=self.class_names)
+        print('', 'Classification report', self.classification_report, sep='\n')
+
+        # Confusion matrix
+        self.confusion_matrix = pd.DataFrame(
+            data=confusion_matrix(y_targets, y_preds), 
+            index=self.class_names, 
+            columns=self.class_names,
+            dtype=int)
+        print('', 'Confusion matrix', '(rows = Actual, columns = Predicted)', '', self.confusion_matrix, sep='\n')
+
+        # Single score
+        score = self.eval_score(y_targets, y_preds)
+
+        # Sample of scores
+        part_size = int(len(dataloader.dataset) / self.setting.test_sample_size)
+        subsets_targets = UtilityMngr.split(y_targets, part_size=part_size)
+        subsets_preds = UtilityMngr.split(y_preds, part_size=part_size)
+
+        scores = []
+        for targs, preds in zip(subsets_targets, subsets_preds):
+            scores += [self.eval_score(targs, preds, info=False)]
+
+        # Inference time
+        _, _, _, fps = self.inference_time(total_times, len(dataloader.dataset))
+
+        print('\n=== TESTING IS FINISHED ===\n')
+
+        return scores, total_times, fps
 
 
     def save_conv_outshape(self, layer):
@@ -827,10 +938,10 @@ if __name__ == "__main__":
         input_size=(3, 32, 32),
         num_classes=10,
         # Batch
-        batch_size=256,
+        batch_size=64,
         batch_norm=False,
         # Epoch
-        epochs=3,
+        epochs=5,
         # Learning rate
         learning_rate=0.001,
         lr_factor=0.1,
@@ -855,10 +966,12 @@ if __name__ == "__main__":
         # Distributions
         distrib=None,
         # Environment
-        sanity_check=False,
-        debug=False,
-        num_workers=15,
-        mixed_precision=True)
+        num_workers=16,
+        mixed_precision=True,
+        test_sample_size=90,
+        seed=42,        
+        sanity_check=True,
+        debug=True)
 
     # Load data
     data = DataMngr(setting)
@@ -882,7 +995,7 @@ if __name__ == "__main__":
 
     # Plot training performance
     plot.performance(states['epoch_results'])
-    
+
     # Evaluate model on traning set
     convnet.evaluate(trainset)
     plot.confusion_matrix(convnet.confusion_matrix)
@@ -890,9 +1003,9 @@ if __name__ == "__main__":
     # Evaluate model on validation set
     convnet.evaluate(validset)
     plot.confusion_matrix(convnet.confusion_matrix)
-    
-    # TODO
-    # Final test
-    #convnet.evaluate(testset)
-    #plot.confusion_matrix(convnet.confusion_matrix)
+
+    # Final evaluation on test set
+    testset = data.load_test()
+    scores, times, fps = convnet.test(testset)
+    plot.confusion_matrix(convnet.confusion_matrix)
     

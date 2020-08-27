@@ -5,6 +5,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 
 from settings import Settings
+from mngrutility import UtilityMngr
 
 
 class PlotMngr:
@@ -202,18 +203,6 @@ class PlotMngr:
         return
 
 
-    def split(self, array, part_size):
-        """
-        Split array into equal parts with given split size except possible last part
-        """
-        chunks = []
-        for i in np.arange(0, len(array)):
-            start_ind = i * part_size
-            array_part = array[start_ind : start_ind + part_size]
-            if len(array_part) > 0:
-                chunks.append(array_part)
-        return chunks
-
     def single_hyperparam(self, axes, hparam, hparam_values, scores, color, i_best_model):
         """
         Plot hyperparameter value vs score value for each evaluated model
@@ -255,7 +244,7 @@ class PlotMngr:
         settings = results['hparams']
         i_best_model = results['best_model_index']
 
-        plots = self.split(hparams, part_size=self.max_charts_plot)
+        plots = UtilityMngr.split(hparams, part_size=self.max_charts_plot)
         sns.set(style='darkgrid')
 
         # Plotting maximum number of charts per plot

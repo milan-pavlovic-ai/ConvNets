@@ -201,6 +201,9 @@ class Settings(HyperParams):
     DEF_GRAD_CLIP_VALUE = False
     DEF_GC_VALUE = 1
 
+    # Initialization
+    DEF_INIT_PARAMS = True
+
     # Default hyper-parameters distributions
     DEF_DISTRIB = HyperParamsDistrib()
 
@@ -208,11 +211,10 @@ class Settings(HyperParams):
     DEF_SANITY_CHECK = False
     DEF_DEBUG = False
     DEF_DEVICE = DeviceMngr()
-    DEF_NUM_WORKERS = 15
+    DEF_NUM_WORKERS = 16
     DEF_MIXED_PRECISION = False
-
-    # Initialization
-    DEF_INIT_PARAMS = True
+    DEF_TEST_SAMPLE_SIZE = 10
+    DEF_SEED = 21
 
     def __init__(self,
         kind,
@@ -240,7 +242,9 @@ class Settings(HyperParams):
         debug=None,
         device=None,
         num_workers=None,
-        mixed_precision=None):
+        mixed_precision=None,
+        test_sample_size=None,
+        seed=None):
 
         super().__init__()
 
@@ -277,6 +281,8 @@ class Settings(HyperParams):
         self.device = device
         self.num_workers = num_workers
         self.mixed_precision = mixed_precision
+        self.test_sample_size = test_sample_size
+        self.seed = seed
 
         # Set default values for None
         for attrib, value in self.__dict__.items():
@@ -358,7 +364,9 @@ if __name__ == "__main__":
         debug=None,
         device=None,
         num_workers=None,
-        mixed_precision=None)
+        mixed_precision=None,
+        test_sample_size=None,
+        seed=None)
     setting2.show()
     hparams = setting2.get_hparams()
     print(hparams)
@@ -374,6 +382,8 @@ if __name__ == "__main__":
         'gc_value':0.25,
         'init_params':False,
         'mixed_precision':True,
-        'num_workers':2})
+        'num_workers':2,
+        'test_sample_size':90,
+        'seed':42})
     setting2.show()
 

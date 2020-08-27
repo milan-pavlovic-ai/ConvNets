@@ -10,6 +10,7 @@ import torch
 
 from torchvision import datasets, transforms
 from settings import Settings
+from mngrutility import UtilityMngr
 
 
 class DataMngr:
@@ -177,7 +178,7 @@ class DataMngr:
 
         return validset
 
-    def load_test(self, sample_size=10):
+    def load_test(self):
         """
         Load images for testing
             It is thus preferred to use the non-random versions of the transformations for the validation/test to get consistent predictions.
@@ -189,55 +190,15 @@ class DataMngr:
             transforms.ToTensor(),                  # Convert to tensor and automatically normalize to [0..1] range
             transforms.Normalize(mean=self.cinic_mean, std=self.cinic_std)])      # Normalize with given parameters calculated on training set
 
-        images = datasets.ImageFolder(DataMngr.TEST_DIR, transformers)
-        num_images = len(images)
-        batch_size = int(num_images / sample_size)
-
         # Load data
         testset = torch.utils.data.DataLoader(
-            dataset=images, 
-            batch_size=batch_size,                      # one sample per batch for testing, mostly because of inference time measuring
+            datasets.ImageFolder(DataMngr.TEST_DIR, transformers), 
+            batch_size=self.batch_size,                 # one sample per batch for testing, mostly because of inference time measuring
             shuffle=True,                               # data will be split into n segments for creating sample of metric for statistical testing
             pin_memory=True,                            # if True, it will enables faster data transfer from CPU to GPU by using page-locked memory
             num_workers=self.num_workers)               # how many subprocesses to use for data loading
 
         return testset
-
-    @staticmethod
-    def set_reproducible_mode(seed=0, deterministic=False):
-        """
-        Set reproducible behaviour with fixed seed for all devices (both CPU and CUDA) for pytorch library,
-            and for all others used libraries such as numpy, random, etc. [1]
-        
-        Using the same software and hardware and not using the specifc kind of methods in pytorch the deterministic behavior is guaranteed [1, 4]
-        If the absolute error is approx. 1e-6 it might be due to the usage of float values [3]
-        Also random transformations for data agumentation should not be used for determististic behavior [3]
-        You need to call this method every time before call initialization of data-loader and order of samples in batches is guaranteed !
-
-        About determinism
-            In deterministic algorithm, for a given particular input, the computer will always produce the same output going through the same states, 
-            but in case of non-deterministic algorithm for the same input, the compiler may produce different output in different runs [2]
-
-            Deterministic operation may have a negative single-run performance impact, depending on the composition of your model.
-            Processing speed (e.g. the number of batches trained per second) may be lower than when the model functions non-deterministically. [1]
-
-        Source: [1] https://pytorch.org/docs/stable/notes/randomness.html
-                [2] https://www.tutorialspoint.com/difference-between-deterministic-and-non-deterministic-algorithms
-                [3] https://discuss.pytorch.org/t/how-to-get-deterministic-behavior/18177/4
-                [4] https://discuss.pytorch.org/t/clarification-for-reproducibility-and-determinism/53928
-        """
-        # Used libraries
-        np.random.seed(seed)
-        random.seed(seed)
-
-        # Torch
-        torch.manual_seed(seed)
-        torch.cuda.manual_seed_all(seed)
-        if deterministic:
-            torch.backends.cudnn.deterministic = True
-            torch.backends.cudnn.benchmark = False
-        return
-
 
 
 if __name__ == "__main__":
@@ -249,10 +210,12 @@ if __name__ == "__main__":
         num_classes=10,
         batch_size=16,
         data_augment=False,
-        num_workers=2)
+        num_workers=2,
+        test_sample_size=90,
+        seed=21)
 
     data = DataMngr(setting)
-
+    
     # Training set
     trainset = data.load_train()
     data.info(trainset, 'training', visualize=True, show_normalized=True)
@@ -262,11 +225,10 @@ if __name__ == "__main__":
     data.info(validset, 'validation', visualize=True, show_normalized=False)
 
     # Test set
-    DataMngr.set_reproducible_mode(seed=21)
-    testset = data.load_test(sample_size=9000)
+    testset = data.load_test()
 
     print('=============')
-    DataMngr.set_reproducible_mode(seed=21)
+    UtilityMngr.set_reproducible_mode(seed=21)
     #data.info(testset, 'test', visualize=True)
     for i, batch in enumerate(testset):
         X, y = batch
@@ -274,7 +236,7 @@ if __name__ == "__main__":
             print(y)
 
     print('=============')
-    DataMngr.set_reproducible_mode(seed=21)
+    UtilityMngr.set_reproducible_mode(seed=21)
     #data.info(testset, 'test', visualize=True)
     for i, batch in enumerate(testset):
         X, y = batch
