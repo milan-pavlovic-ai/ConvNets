@@ -108,7 +108,6 @@ class Tuner:
 
         # Load best parameters and other information into created model
         best_checkpoint = model.load_checkpoint(path=self.best_model_path)
-        model.epoch_results = best_checkpoint['epoch_results']
 
         # Save history of tuning process
         best_checkpoint['tuning_results'] = self.results                           
@@ -137,7 +136,7 @@ if __name__ == "__main__":
         batch_size      = [32, 64, 128, 256, 512, 1024],
         batch_norm      = [False],
         # Epoch
-        epochs          = [10],
+        epochs          = [5],
         # Learning rate
         learning_rate   = list(np.logspace(np.log10(0.001), np.log10(0.1), base=10, num=1000)),
         lr_factor       = list(np.logspace(np.log10(0.01), np.log10(1), base=10, num=1000)),
@@ -181,7 +180,7 @@ if __name__ == "__main__":
     if load_checkpoint:
         model = ConvNet(setting)
         setting.device.move(model)
-        states = model.load_checkpoint(path='data/output/ConvNet0-1598410395-tuned.tar')
+        states = model.load_checkpoint(path='data/output/ConvNet0-1599784898-tuned.tar')
 
         plot = PlotMngr()
         plot.performance(states['epoch_results'])

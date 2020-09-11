@@ -325,6 +325,8 @@ class MultiClassBaseModel(nn.Module):
         """
         Print results at end of epoch
         """
+        already_trained_epochs = self.epoch_results['total_epochs']
+
         self.epoch_results['train_loss'].append(train_loss)
         self.epoch_results['valid_loss'].append(valid_loss)
 
@@ -332,40 +334,68 @@ class MultiClassBaseModel(nn.Module):
         self.epoch_results['valid_score'].append(valid_score)
 
         self.epoch_results['learning_rate'].append(learning_rate)
-        self.epoch_results['train_epochs'] = epoch
+        self.epoch_results['train_epochs'] = already_trained_epochs + epoch
 
         # Print results
         print()
-        print('EPOCH {}/{}'.format(epoch, self.setting.epochs))
+        print('EPOCH {}/{}'.format(already_trained_epochs + epoch, already_trained_epochs + self.setting.epochs))
         print('Train Loss: \t{:.6f} \tValid Loss: \t{:.6f}'.format(train_loss, valid_loss))
         print('Train Accuracy: {:.3f}% \tValid Accuracy: {:.3f}%'.format(train_score*100, valid_score*100))
         print('Learning rate:\t{}'.format(learning_rate))
         print()
         return
 
-    def fit(self, trainset, validset, resuming=False):
+    def update_epoch_results(self):
+        """
+        Remove results for all epochs after best model epoch
+        """
+        ind_best_model = self.epoch_results['train_epochs']
+
+        self.epoch_results['train_loss'] = self.epoch_results['train_loss'][:ind_best_model]
+        self.epoch_results['valid_loss'] = self.epoch_results['valid_loss'][:ind_best_model]
+
+        self.epoch_results['train_score'] = self.epoch_results['train_score'][:ind_best_model]
+        self.epoch_results['valid_score'] = self.epoch_results['valid_score'][:ind_best_model]
+
+        self.epoch_results['learning_rate'] = self.epoch_results['learning_rate'][:ind_best_model]
+
+        epoch_time = float(self.epoch_results['train_time']) / int(self.epoch_results['total_epochs'])
+        train_time = epoch_time * int(self.epoch_results['train_epochs'])
+        self.epoch_results['train_time'] = train_time
+
+        self.epoch_results['total_epochs'] = self.epoch_results['train_epochs']
+        return
+
+    def fit(self, trainset, validset, resume=False):
         """
         Fit the given training dataset into the model with controling of training process with validation dataset by calculating losses and scores per epoch
         After this method, the instance from which this method is called hold reference to best-achieved model on the training process
         Returns model with best achieved metric on validation set
         """
+        # Start/Resume training
+        if resume:
+            self.update_epoch_results()
+            best_valid_score = self.epoch_results['valid_score'][-1]
+            best_valid_loss = self.epoch_results['valid_loss'][-1]
+        else:
+            self.init_optimizer()
+            self.epoch_results = {'train_loss':[], 'train_score':[], 'valid_loss':[], 'valid_score':[], 'learning_rate':[], 'train_epochs':0, 'total_epochs':0, 'train_time':0.0}
+            best_valid_score = -1
+            best_valid_loss = float('inf')
+            
         # Initialize
-        best_valid_score = -1
-        best_valid_loss = float('inf')
         best_params = copy.deepcopy(self.state_dict()) 
         epochs_no_improve = 0
-
-        self.epoch_results = {'train_loss':[], 'train_score':[], 'valid_loss':[], 'valid_score':[], 'learning_rate':[], 'train_epochs':0, 'train_time':0}
-
-        if not resuming:
-            self.init_optimizer()
 
         # Start time
         torch.cuda.synchronize()
         start_time = t.perf_counter()
 
         # Training process
-        print('\n=== START TRAINING ===\n')
+        if resume:
+            print('\n=== RESUME TRAINING ===\n')
+        else:
+            print('\n=== START TRAINING ===\n')
 
         for epoch in range(self.setting.epochs):
 
@@ -420,13 +450,18 @@ class MultiClassBaseModel(nn.Module):
         # Training time
         torch.cuda.synchronize()
         train_time = t.perf_counter() - start_time
-        self.epoch_results['train_time'] = train_time
+        self.epoch_results['train_time'] += train_time
         print('Training time: {:.3f}s'.format(train_time))
 
+        # Remember epoch results after best model epoch
+        self.epoch_results['total_epochs'] += epoch + 1                                            # update total number of epochs
+        total_results = copy.deepcopy(self.epoch_results)
+
         # Update epoch results after best model epoch
-        best_checkpoint = self.load_checkpoint(path=self.model_path)                               # load best model environment
-        self.epoch_results['train_epochs'] = best_checkpoint['epoch_results']['train_epochs']      # set number of trained epochs for best model
-        best_checkpoint['epoch_results'] = self.epoch_results                                      # remeber epochs after best model
+        best_checkpoint = self.load_checkpoint(path=self.model_path)                               # load best model environment   
+        total_results['train_epochs'] = best_checkpoint['epoch_results']['train_epochs']           # set number of trained epochs for best model                                
+        self.epoch_results = total_results                                                         # update epoch results for model instance
+        best_checkpoint['epoch_results'] = self.epoch_results                                      # remember epochs after best model
         self.update_checkpoint(best_checkpoint, path=self.model_path)
 
         print('\n=== TRAINING IS FINISHED ===\n')
@@ -780,7 +815,8 @@ class MultiClassBaseModel(nn.Module):
             'setting': self.setting.to_dict(),                  # model settings
             'model': self.state_dict(),                         # model parameters
             'optimizer': self.optimizer.state_dict(),           # optimizer parameters
-            'lr_scheduler': self.lr_scheduler.state_dict()}     # lr_schduler parameters
+            'lr_scheduler': self.lr_scheduler.state_dict(),     # lr_schduler parameters
+            'grad_scaler': self.grad_scaler.state_dict()}       # grad scaler parameters
 
         # Save checkpoint
         torch.save(checkpoint, path)
@@ -827,10 +863,13 @@ class MultiClassBaseModel(nn.Module):
         self.init_optimizer()
 
         # Load parameters for each component
+        self.epoch_results = checkpoint['epoch_results']
         self.setting.load_values(checkpoint['setting'])
         self.load_state_dict(checkpoint['model'])
         self.optimizer.load_state_dict(checkpoint['optimizer'])
         self.lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
+        self.grad_scaler.load_state_dict(checkpoint['grad_scaler'])
+
         self.setting.device.move(self)
 
         # Contains information about each epoch
@@ -943,7 +982,7 @@ if __name__ == "__main__":
         # Epoch
         epochs=5,
         # Learning rate
-        learning_rate=0.001,
+        learning_rate=0.1,
         lr_factor=0.1,
         lr_patience=5,
         # Regularization
@@ -970,8 +1009,8 @@ if __name__ == "__main__":
         mixed_precision=True,
         test_sample_size=90,
         seed=42,        
-        sanity_check=True,
-        debug=True)
+        sanity_check=False,
+        debug=False)
 
     # Load data
     data = DataMngr(setting)
@@ -991,10 +1030,16 @@ if __name__ == "__main__":
     plot.performance(convnet.epoch_results)
 
     # Load best model
-    states = convnet.load_checkpoint()
+    convnet.load_checkpoint()
 
-    # Plot training performance
-    plot.performance(states['epoch_results'])
+    # Plot loaded training performance
+    plot.performance(convnet.epoch_results)
+
+    # Continue training
+    convnet.fit(trainset, validset, resume=True)
+
+    # Plot resumed training performance
+    plot.performance(convnet.epoch_results)
 
     # Evaluate model on traning set
     convnet.evaluate(trainset)

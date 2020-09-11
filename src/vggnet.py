@@ -210,17 +210,17 @@ def process_tune():
     # Hyper-parameters search space
     distrib = HyperParamsDistrib(
         # Batch
-        batch_size      = [256],
+        batch_size      = [32],
         batch_norm      = [True],
         # Epoch
         epochs          = [50],
         # Learning rate
-        learning_rate   = list(np.logspace(np.log10(0.0001), np.log10(0.01), base=10, num=1000)),
+        learning_rate   = list(np.logspace(np.log10(0.0001), np.log10(0.001), base=10, num=1000)),
         lr_factor       = list(np.logspace(np.log10(0.01), np.log10(1), base=10, num=1000)),
         lr_patience     = list(np.arange(10, 12)),
         # Regularization
-        weight_decay    = list(np.logspace(np.log10(1E-3), np.log10(0.5), base=10, num=1000)),
-        dropout_rate    = stats.uniform(0.3, 0.65),
+        weight_decay    = list(np.logspace(np.log10(0.01), np.log10(0.9), base=10, num=1000)),
+        dropout_rate    = stats.uniform(0.85, 0.15),
         # Metric
         loss_optim      = [False],
         # Data
@@ -256,11 +256,12 @@ def process_tune():
     validset = data.load_valid()
 
     # Load checkpoint
-    load_checkpoint = False
+    load_checkpoint = True
     if load_checkpoint:
         model = VGGNet(setting)
         setting.device.move(model)
-        states = model.load_checkpoint(path='data/output/VGGNet16-1598459286-tuned.tar')
+        states = model.load_checkpoint(path='data/output/VGGNet16-1598556840-tuned.tar')
+        model.setting.show()
 
         plot = PlotMngr()
         plot.performance(states['epoch_results'])
