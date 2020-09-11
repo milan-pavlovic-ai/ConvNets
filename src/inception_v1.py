@@ -14,25 +14,15 @@ from settings import Settings, HyperParamsDistrib
 from basemodel import MultiClassBaseModel
 
 
-class VGGNet(MultiClassBaseModel):
+class Inception_v1(MultiClassBaseModel):
     """
-    VGGNet - Visual Geometry Group Network
+    Inception v1 - also known as GoogLeNet with batch normalization
 
-    Source: Very deep convolutional networks for large-scale image recognition
-            https://arxiv.org/pdf/1409.1556v6.pdf
+    Source: Going deeper with convolutions
+            https://arxiv.org/pdf/1409.4842.pdf
     """
-
-    config = {
-        '11': [64, 'M', 128, 'M', 256, 256, 'M', 512, 512, 'M', 512, 512, 'M'],
-        '13': [64, 64, 'M', 128, 128, 'M', 256, 256, 'M', 512, 512, 'M', 512, 512, 'M'],
-        '16': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'M', 512, 512, 512, 'M', 512, 512, 512, 'M'],
-        '19': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 256, 'M', 512, 512, 512, 512, 'M', 512, 512, 512, 512, 'M']
-    }
 
     def __init__(self, setting):
-        """
-        Initialization of model
-        """
         super().__init__(setting)
 
         # Features
@@ -49,49 +39,22 @@ class VGGNet(MultiClassBaseModel):
 
     def make_feature_layers(self):
         """
-        Create features layers from configuration by using convolution and max-pooling operation
+        Create features layers
         """
         layers = []
 
-        # Construct layers from configuration
-        for element in VGGNet.config[str(self.setting.kind)]:
-
-            if element == 'M':
-                # Max-pooling layer
-                layer = nn.MaxPool2d(kernel_size=(2, 2), stride=2)
-                self.save_conv_outshape(layer)
-                layers += [layer]
-            else:
-                # Convolutional layer
-                layer = nn.Conv2d(self.in_channels, element, kernel_size=(3, 3), stride=1, padding=1)
-                self.save_conv_outshape(layer)
-                layers += [layer]
-
-                # Batch normalization layer
-                if self.setting.batch_norm:
-                    layers += [nn.BatchNorm2d(num_features=self.in_channels)]
-
-                # Activation layer
-                layers += [nn.ReLU()]
+        # TODO
                 
         return nn.Sequential(*layers)
 
     def make_classifier_layers(self):
         """
-        Create classifier layers by using linear operation with dropout regularization method
+        Create classifier layers
         """
-        layers = nn.Sequential(
-            nn.Linear(self.num_flat_features(), 4096),
-            nn.ReLU(),
-            nn.Dropout(p=self.setting.dropout_rate),
-
-            nn.Linear(4096, 4096),
-            nn.ReLU(),
-            nn.Dropout(p=self.setting.dropout_rate),
-
-            nn.Linear(4096, self.setting.num_classes)
-        )
+        layers = nn.Sequential()
         
+        # TODO
+
         return layers
 
     def forward(self, x):
@@ -180,7 +143,7 @@ def process_fit():
     validset = data.load_valid()
 
     # Create net
-    model = VGGNet(setting)
+    model = Inception_v1(setting)
     setting.device.move(model)
     model.print_summary()
 
@@ -203,7 +166,7 @@ def process_tune():
         batch_size      = [256],
         batch_norm      = [True],
         # Epoch
-        epochs          = [3],
+        epochs          = [50],
         # Learning rate
         learning_rate   = list(np.logspace(np.log10(0.0001), np.log10(0.01), base=10, num=1000)),
         lr_factor       = list(np.logspace(np.log10(0.01), np.log10(1), base=10, num=1000)),
@@ -246,7 +209,7 @@ def process_tune():
     validset = data.load_valid()
 
     # Create tuner
-    tuner = Tuner(VGGNet, setting)
+    tuner = Tuner(Inception_v1, setting)
 
     # Search for best model in tuning process
     model, tuning_results = tuner.process(num_iter=3)
@@ -270,7 +233,7 @@ def process_load(resume_training=False):
         debug=False)
 
     # Load checkpoint
-    model = VGGNet(setting)
+    model = Inception_v1(setting)
     model.setting.device.move(model)
     states = model.load_checkpoint(path='data/output/VGGNet16-1599825440-tuned.tar')
     model.setting.show()
@@ -295,9 +258,8 @@ def process_load(resume_training=False):
 
 if __name__ == "__main__":
     
-    #process_fit()
+    process_fit()
 
-    process_tune()
+    #process_tune()
 
-    #process_load(resume_training=True)
-
+    #process_load(resume_training=False)

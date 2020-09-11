@@ -81,6 +81,29 @@ class MultiClassBaseModel(nn.Module):
         self.grad_scaler = amp.GradScaler()       
         return
 
+    def init_params(self):
+        """
+        Parameters initialization
+        Source: https://pytorch.org/docs/stable/nn.init.html
+        """
+        for m in self.modules():
+            # Convolutional layer, weights use normal He initialization, biases are 0
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+                    
+            # Batch Normalization layer, weights are 1, biases are 0 
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+
+            # Fully Connected layer, weights have normal distribution with mean 0 and std 0.01, biases are 0
+            elif isinstance(m, nn.Linear):
+                nn.init.normal_(m.weight, 0, 0.01)
+                nn.init.constant_(m.bias, 0)
+        return
+
 
     @torch.no_grad()
     def score(self, outputs, targets):
