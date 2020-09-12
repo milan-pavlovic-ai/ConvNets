@@ -773,6 +773,35 @@ class MultiClassBaseModel(nn.Module):
 
         return self.in_channels, self.height, self.width
 
+    def save_adapt_outshape(self, layer):
+        """
+        Calculate and save dimensions (channels, height, width) of AdaptiveMaxPool2d or AdaptiveAvgPool2d layer output
+        In other words calculate the new dimensions of input
+        This method should be always called after AdaptiveMaxPool2d or AdaptiveAvgPool2d operation
+        Source: https://pytorch.org/docs/stable/generated/torch.nn.AdaptiveMaxPool2d.html
+                https://pytorch.org/docs/stable/generated/torch.nn.AdaptiveAvgPool2d.html
+        """
+        # Output size
+        if type(layer.output_size) is int:
+            output_size_H = layer.output_size
+            output_size_W = layer.output_size
+        else:
+            output_size_H, output_size_W = layer.output_size
+
+        # Debug
+        if self.setting.debug:
+            print('[Outshape BEFORE] Layer={}, Num of Channels={}, Height={}, Width={}'.format(layer._get_name(), self.in_channels, self.height, self.width))
+
+        # Update dimensions
+        self.height = output_size_H
+        self.width = output_size_W
+
+        # Debug
+        if self.setting.debug:
+            print('[Outshape AFTER] Layer={}, Num of Channels={}, Height={}, Width={}'.format(layer._get_name(), self.in_channels, self.height, self.width))
+
+        return self.in_channels, self.height, self.width
+
     def num_flat_features(self):
         """
         Returns number of neurons/parameters from last non-flat layer

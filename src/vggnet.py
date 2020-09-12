@@ -17,6 +17,8 @@ from basemodel import MultiClassBaseModel
 class VGGNet(MultiClassBaseModel):
     """
     VGGNet - Visual Geometry Group Network
+        Modifications
+            - Added Batch Normalization after each Convolutional layer
 
     Source: Very deep convolutional networks for large-scale image recognition
             https://arxiv.org/pdf/1409.1556v6.pdf
