@@ -97,12 +97,14 @@ class MultiClassBaseModel(nn.Module):
             # Batch Normalization layer, weights are 1, biases are 0 
             elif isinstance(m, nn.BatchNorm2d):
                 nn.init.constant_(m.weight, 1)
-                nn.init.constant_(m.bias, 0)
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
 
             # Fully Connected layer, weights have normal distribution with mean 0 and std 0.01, biases are 0
             elif isinstance(m, nn.Linear):
-                nn.init.normal_(m.weight, 0, 0.01)
-                nn.init.constant_(m.bias, 0)
+                nn.init.normal_(m.weight, mean=0, std=0.01)
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
         return
 
 
