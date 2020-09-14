@@ -1,5 +1,6 @@
 
 import os
+import sys
 import copy
 import time as t
 import numpy as np
@@ -815,6 +816,14 @@ class MultiClassBaseModel(nn.Module):
         for param_group in self.optimizer.param_groups:
             return param_group['lr']
 
+    def update_learning_rate(self):
+        """
+        Update learning rate from changed configuration
+        """
+        for param_group in self.optimizer.param_groups:
+            param_group['lr'] = self.setting.learning_rate
+        return
+
 
     def create_checkpoint_path(self, suffix=None, version=None):
         """
@@ -899,7 +908,7 @@ class MultiClassBaseModel(nn.Module):
 
         return checkpoint
 
-    def load_checkpoint(self, suffix=None, path=None):
+    def load_checkpoint(self, suffix=None, path=None, strict=True):
         """
         Load saved checkpoint to be used for either inference or resuming training
         To continue training method fit() must be called with flag resuming=True
@@ -909,7 +918,12 @@ class MultiClassBaseModel(nn.Module):
         if path is None:
             checkpoint = self.get_last_checkpoint(suffix)
         else:
-            checkpoint = torch.load(path)
+            if os.path.isfile(path):
+                checkpoint = torch.load(path)
+            else:
+                print('File \"{}\" does not exist!'.format(path))
+                sys.exit(0)
+                return
 
         # Initalization
         self.init_optimizer()
@@ -917,7 +931,7 @@ class MultiClassBaseModel(nn.Module):
         # Load parameters for each component
         self.epoch_results = checkpoint['epoch_results']
         self.setting.load_values(checkpoint['setting'])
-        self.load_state_dict(checkpoint['model'])
+        self.load_state_dict(checkpoint['model'], strict=strict)
         self.optimizer.load_state_dict(checkpoint['optimizer'])
         self.lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
         self.grad_scaler.load_state_dict(checkpoint['grad_scaler'])
@@ -943,66 +957,94 @@ class MultiClassBaseModel(nn.Module):
         return
 
 
+    def conv2d_block(self, in_channels=None, num_filters=None, set_output=True, activation=True, **kwargs):
+        """
+        Convolutional 2D block
+        """
+        layers = []
+
+        # Convolutional layer
+        if set_output:
+            layer = nn.Conv2d(self.in_channels, num_filters, **kwargs)
+            self.save_conv_outshape(layer)
+        else:
+            layer = nn.Conv2d(in_channels, num_filters, **kwargs)
+        layers += [layer]
+
+        # Batch normalization layer
+        if self.setting.batch_norm:
+            layers += [nn.BatchNorm2d(num_features=num_filters)]
+
+        # Activation layer
+        if activation:
+            layers += [nn.ReLU()]
+
+        # Convolutional block
+        return nn.Sequential(*layers)
+
+    def maxpool2d(self, set_output=True, **kwargs):
+        """
+        Maximum Pooling 2D
+        """
+        layer = nn.MaxPool2d(**kwargs)
+        if set_output:
+            self.save_conv_outshape(layer)
+        return layer
+
+    def adapt_avgpool2d(self, set_output=True, **kwargs):
+        """
+        Average Pooling 2D
+        """
+        layer = nn.AdaptiveAvgPool2d(**kwargs)
+        if set_output:
+            self.save_adapt_outshape(layer)
+        return layer
+
+
 class ConvNet(MultiClassBaseModel):
     """
     Convolutional neural network
     """
 
     def __init__(self, setting):
+        """
+        Initialize layers
+        """
         super().__init__(setting)
 
         # Features
-        self.conv1 = nn.Conv2d(
-            in_channels=self.in_channels, 
-            out_channels=32, 
-            kernel_size=3)
-        self.save_conv_outshape(self.conv1)
-
-        self.maxpool1 = nn.MaxPool2d(
-            kernel_size=(2, 2),
-            stride=(2, 2))
-        self.save_conv_outshape(self.maxpool1)
-
-        self.conv2 = nn.Conv2d(
-            in_channels=self.in_channels, 
-            out_channels=64, 
-            kernel_size=5,
-            stride=2, 
-            padding=1)
-        self.save_conv_outshape(self.conv2)
-
-        self.maxpool2 = nn.MaxPool2d(
-            kernel_size=2,
-            stride=2)
-        self.save_conv_outshape(self.maxpool2)
+        self.features = nn.Sequential(
+            self.conv2d_block(num_filters=32, kernel_size=3),
+            self.maxpool2d(kernel_size=2, stride=2),
+            self.conv2d_block(num_filters=64, kernel_size=5, stride=2, padding=1),
+            self.maxpool2d(kernel_size=2, stride=2)
+        )
 
         # Classifier
-        self.num_flatten = self.num_flat_features()
-        self.fc1 = nn.Linear(self.num_flatten, 2048)
-        self.fc2 = nn.Linear(2048, self.setting.num_classes)
+        self.classifier = nn.Sequential(
+            nn.Linear(self.num_flat_features(), 2048),
+            nn.ReLU(),
+            nn.Dropout(p=self.setting.dropout_rate),
+            nn.Linear(2048, self.setting.num_classes))
 
-        # Initialize weights
-        self.init_weights()
+        # Initialize parameters
+        if self.setting.init_params:
+            self.init_params()
         return
 
     def forward(self, x):
-        x = F.relu(self.conv1(x))
-        x = self.maxpool1(x)
-
-        x = F.relu(self.conv2(x))
-        x = self.maxpool2(x)
-        
-        x = x.view(-1, self.num_flatten)
-        x = F.relu(self.fc1(x))
-        x = F.dropout(x, p=self.setting.dropout_rate, training=self.training)
-
-        x = self.fc2(x)
+        """
+        Forward propagation
+        """
+        x = self.features(x)
+        x = torch.flatten(x, start_dim=1)
+        x = self.classifier(x)
         return x
 
-    def init_weights(self):
+    def init_params(self):
         """
-        Weight initialization
-        The general rule for setting the weights in a neural network is to set them to be close to zero without being too small
+        Parameters initialization
+        The general rule for setting the parameters in a neural network is to set them to be close to zero without being too small
         """
         for m in self.modules():
 
@@ -1032,7 +1074,7 @@ if __name__ == "__main__":
         batch_size=64,
         batch_norm=False,
         # Epoch
-        epochs=5,
+        epochs=3,
         # Learning rate
         learning_rate=0.1,
         lr_factor=0.1,
@@ -1041,7 +1083,7 @@ if __name__ == "__main__":
         weight_decay=1E-5,
         dropout_rate=0.5,
         # Metric
-        loss_optim=True,
+        loss_optim=False,
         # Data
         data_augment=False,
         # Early stopping

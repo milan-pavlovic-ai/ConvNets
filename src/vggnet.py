@@ -106,7 +106,7 @@ class VGGNet(MultiClassBaseModel):
         return x
 
 
-def process_eval(model, trainset, validset, testset, tuning=False, tuning_results=None):
+def process_eval(model, trainset, validset, testset, tuning=False, results=None):
     """
     Process evaluation process
     """
@@ -128,7 +128,9 @@ def process_eval(model, trainset, validset, testset, tuning=False, tuning_result
 
     # Plot tuning process
     if tuning:
-        plot.hyperparameters(tuning_results, model.setting.get_hparams_names())
+        if 'tuning_results' in results:
+            results = results['tuning_results']
+        plot.hyperparameters(results, model.setting.get_hparams_names())
     return
 
 def process_fit():
@@ -191,7 +193,7 @@ def process_fit():
 
     # Evaluate model
     testset = data.load_test()
-    process_eval(model, trainset, validset, testset, tuning=False, tuning_results=None)
+    process_eval(model, trainset, validset, testset, tuning=False, results=None)
     
     return
 
@@ -205,21 +207,21 @@ def process_tune():
         batch_size      = [256],
         batch_norm      = [True],
         # Epoch
-        epochs          = [3],
+        epochs          = [50],
         # Learning rate
         learning_rate   = list(np.logspace(np.log10(0.0001), np.log10(0.01), base=10, num=1000)),
         lr_factor       = list(np.logspace(np.log10(0.01), np.log10(1), base=10, num=1000)),
-        lr_patience     = list(np.arange(10, 12)),
+        lr_patience     = [10],
         # Regularization
         weight_decay    = list(np.logspace(np.log10(0.09), np.log10(0.9), base=10, num=1000)),
-        dropout_rate    = stats.uniform(0.95, 0.05),
+        dropout_rate    = stats.uniform(0.9, 0.1),
         # Metric
         loss_optim      = [False],
         # Data
         data_augment    = [False],
         # Early stopping
         early_stop      = [True],
-        es_patience     = list(np.arange(12, 15)),
+        es_patience     = [12],
         # Gradient clipping
         grad_clip_norm  = [False],
         gc_max_norm     = [1],
@@ -251,11 +253,11 @@ def process_tune():
     tuner = Tuner(VGGNet, setting)
 
     # Search for best model in tuning process
-    model, tuning_results = tuner.process(num_iter=3)
+    model, results = tuner.process(num_iter=3)
 
     # Evaluate model
     testset = data.load_test()
-    process_eval(model, trainset, validset, testset, tuning=True, tuning_results=tuning_results)
+    process_eval(model, trainset, validset, testset, tuning=True, results=results)
     
     return
 
@@ -268,13 +270,17 @@ def process_load(resume_training=False):
         kind=16,
         input_size=(3, 32, 32),
         num_classes=10,
+        num_workers=16,
+        mixed_precision=True,
+        test_sample_size=90,
+        seed=21,
         sanity_check=False,
         debug=False)
 
     # Load checkpoint
     model = VGGNet(setting)
     model.setting.device.move(model)
-    states = model.load_checkpoint(path='data/output/VGGNet16-1599825440-tuned.tar')
+    states = model.load_checkpoint(path='data/output/VGGNet16-1600024387-tuned.tar')
     model.setting.show()
 
     # Load data
@@ -290,7 +296,7 @@ def process_load(resume_training=False):
 
     # Evaluate model
     testset = data.load_test()
-    process_eval(model, trainset, validset, testset, tuning=True, tuning_results=states['tuning_results'])
+    process_eval(model, trainset, validset, testset, tuning=True, results=states)
 
     return
 
@@ -299,7 +305,7 @@ if __name__ == "__main__":
     
     #process_fit()
 
-    process_tune()
+    #process_tune()
 
-    #process_load(resume_training=True)
+    process_load(resume_training=False)
 

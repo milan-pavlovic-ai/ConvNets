@@ -14,7 +14,7 @@ from settings import Settings, HyperParamsDistrib
 from basemodel import MultiClassBaseModel
 
 
-class Inception_v1(MultiClassBaseModel):
+class InceptionV1(MultiClassBaseModel):
     """
     Inception v1 - also known as GoogLeNet
         Modifications
@@ -48,18 +48,18 @@ class Inception_v1(MultiClassBaseModel):
         layers = []
 
         # [1] Convolution
-        layers += [Conv2dBlock(self, num_filters=64, kernel_size=7, stride=2, padding=3)]
-        layers += [MaxPool2DBlock(self, kernel_size=3, stride=2, padding=1)]
+        layers += [self.conv2d_block(num_filters=64, kernel_size=7, stride=2, padding=3)]
+        layers += [self.maxpool2d(kernel_size=3, stride=2, padding=1)]
         
         # [2] Convolution
-        layers += [Conv2dBlock(self, num_filters=64, kernel_size=1, stride=1)]
-        layers += [Conv2dBlock(self, num_filters=192, kernel_size=3, stride=1, padding=1)]
-        layers += [MaxPool2DBlock(self, kernel_size=3, stride=2, padding=1)]
+        layers += [self.conv2d_block(num_filters=64, kernel_size=1, stride=1)]
+        layers += [self.conv2d_block(num_filters=192, kernel_size=3, stride=1, padding=1)]
+        layers += [self.maxpool2d(kernel_size=3, stride=2, padding=1)]
 
         # [3] Inception
         layers += [InceptionBlock(self, 64, 96, 128, 16, 32, 32)]
         layers += [InceptionBlock(self, 128, 128, 192, 32, 96, 64)]
-        layers += [MaxPool2DBlock(self, kernel_size=3, stride=2, padding=1)]
+        layers += [self.maxpool2d(kernel_size=3, stride=2, padding=1)]
 
         # [4] Inception
         layers += [InceptionBlock(self, 192, 96, 208, 16, 48, 64)]
@@ -67,12 +67,12 @@ class Inception_v1(MultiClassBaseModel):
         layers += [InceptionBlock(self, 128, 128, 256, 24, 64, 64)]
         layers += [InceptionBlock(self, 112, 144, 288, 32, 64, 64)]
         layers += [InceptionBlock(self, 256, 160, 320, 32, 128, 128)]
-        layers += [MaxPool2DBlock(self, kernel_size=3, stride=2, padding=1)]
+        layers += [self.maxpool2d(kernel_size=3, stride=2, padding=1)]
 
         # [5] Inception
         layers += [InceptionBlock(self, 256, 160, 320, 32, 128, 128)]
         layers += [InceptionBlock(self, 384, 192, 384, 48, 128, 128)]
-        layers += [AdaptAvgPool2DBlock(self, output_size=1)]
+        layers += [self.adapt_avgpool2d(output_size=1)]
 
         return nn.Sequential(*layers)
 
@@ -96,87 +96,6 @@ class Inception_v1(MultiClassBaseModel):
         x = self.classifier(x)
         return x
 
-class Conv2dBlock(nn.Module):
-    """
-    Convolutional 2D block
-    """
-
-    def __init__(self, network, in_channels=None, num_filters=None, set_output=True, **kwargs):
-        """
-        Initialize layers
-        """
-        super().__init__()
-        layers = []
-
-        # Convolutional layer
-        if set_output:
-            layer = nn.Conv2d(network.in_channels, num_filters, **kwargs)
-            network.save_conv_outshape(layer)
-        else:
-            layer = nn.Conv2d(in_channels, num_filters, **kwargs)
-        layers += [layer]
-
-        # Batch normalization layer
-        if network.setting.batch_norm:
-            layers += [nn.BatchNorm2d(num_features=num_filters)]
-
-        # Activation layer
-        layers += [nn.ReLU()]
-
-        # Convolutional block
-        self.conv2d_blok = nn.Sequential(*layers)
-        return
-
-    def forward(self, x):
-        """
-        Forward propagation
-        """
-        return self.conv2d_blok(x)
-
-class MaxPool2DBlock(nn.Module):
-    """
-    Maximum Pooling 2D block
-    """
-
-    def __init__(self, network, set_output=True, **kwargs):
-        """
-        Initialize layers
-        """
-        super().__init__()
-
-        self.max_pool = nn.MaxPool2d(**kwargs)
-        if set_output:
-            network.save_conv_outshape(self.max_pool)
-        return
-
-    def forward(self, x):
-        """
-        Forward propagation
-        """
-        return self.max_pool(x)
-
-class AdaptAvgPool2DBlock(nn.Module):
-    """
-    Average Pooling 2D block
-    """
-
-    def __init__(self, network, set_output=True, **kwargs):
-        """
-        Initialize layers
-        """
-        super().__init__()
-
-        self.avg_pool = nn.AdaptiveAvgPool2d(**kwargs)
-        if set_output:
-            network.save_adapt_outshape(self.avg_pool)
-        return
-
-    def forward(self, x):
-        """
-        Forward propagation
-        """
-        return self.avg_pool(x)
-
 class InceptionBlock(nn.Module):
     """
     Inception block
@@ -188,21 +107,21 @@ class InceptionBlock(nn.Module):
         """
         super().__init__()
 
-        self.branch1 = Conv2dBlock(network, network.in_channels, ch_conv1x1, set_output=False, kernel_size=1)
+        self.branch1 = network.conv2d_block(network.in_channels, ch_conv1x1, set_output=False, kernel_size=1)
 
         self.branch2 = nn.Sequential(
-            Conv2dBlock(network, network.in_channels, ch_conv3x3_red, set_output=False, kernel_size=1),
-            Conv2dBlock(network, ch_conv3x3_red, ch_conv3x3, set_output=False, kernel_size=3, padding=1)
+            network.conv2d_block(network.in_channels, ch_conv3x3_red, set_output=False, kernel_size=1),
+            network.conv2d_block(ch_conv3x3_red, ch_conv3x3, set_output=False, kernel_size=3, padding=1)
         )
 
         self.branch3 = nn.Sequential(
-            Conv2dBlock(network, network.in_channels, ch_conv5x5_red, set_output=False, kernel_size=1),
-            Conv2dBlock(network, ch_conv5x5_red, ch_conv5x5, set_output=False, kernel_size=5, padding=2)
+            network.conv2d_block(network.in_channels, ch_conv5x5_red, set_output=False, kernel_size=1),
+            network.conv2d_block(ch_conv5x5_red, ch_conv5x5, set_output=False, kernel_size=5, padding=2)
         )
 
         self.branch4 = nn.Sequential(
-            MaxPool2DBlock(network, set_output=True, kernel_size=3, stride=1, padding=1),
-            Conv2dBlock(network, num_filters=pool_proj, set_output=True, kernel_size=1)
+            network.maxpool2d(set_output=True, kernel_size=3, stride=1, padding=1),
+            network.conv2d_block(num_filters=pool_proj, set_output=True, kernel_size=1)
         )
 
         network.in_channels = ch_conv1x1 + ch_conv3x3 + ch_conv5x5 + pool_proj
@@ -217,12 +136,13 @@ class InceptionBlock(nn.Module):
         branch2 = self.branch2(x)
         branch3 = self.branch3(x)
         branch4 = self.branch4(x)
+
         outputs = [branch1, branch2, branch3, branch4]
 
         return torch.cat(outputs, dim=1)
 
 
-def process_eval(model, trainset, validset, testset, tuning=False, tuning_results=None):
+def process_eval(model, trainset, validset, testset, tuning=False, results=None):
     """
     Process evaluation process
     """
@@ -244,7 +164,9 @@ def process_eval(model, trainset, validset, testset, tuning=False, tuning_result
 
     # Plot tuning process
     if tuning:
-        plot.hyperparameters(tuning_results, model.setting.get_hparams_names())
+        if 'tuning_results' in results:
+            results = results['tuning_results']
+        plot.hyperparameters(results, model.setting.get_hparams_names())
     return
 
 def process_fit():
@@ -260,7 +182,7 @@ def process_fit():
         batch_size=256,
         batch_norm=True,
         # Epoch
-        epochs=10,
+        epochs=3,
         # Learning rate
         learning_rate=0.01,
         lr_factor=0.1,
@@ -298,7 +220,7 @@ def process_fit():
     validset = data.load_valid()
 
     # Create net
-    model = Inception_v1(setting)
+    model = InceptionV1(setting)
     setting.device.move(model)
     model.print_summary()
 
@@ -307,7 +229,7 @@ def process_fit():
 
     # Evaluate model
     testset = data.load_test()
-    process_eval(model, trainset, validset, testset, tuning=False, tuning_results=None)
+    process_eval(model, trainset, validset, testset, tuning=False, results=None)
     
     return
 
@@ -321,7 +243,7 @@ def process_tune():
         batch_size      = [256],
         batch_norm      = [True],
         # Epoch
-        epochs          = [50],
+        epochs          = [10],
         # Learning rate
         learning_rate   = list(np.logspace(np.log10(0.0001), np.log10(0.1), base=10, num=1000)),
         lr_factor       = list(np.logspace(np.log10(0.01), np.log10(1), base=10, num=1000)),
@@ -364,14 +286,14 @@ def process_tune():
     validset = data.load_valid()
 
     # Create tuner
-    tuner = Tuner(Inception_v1, setting)
+    tuner = Tuner(InceptionV1, setting)
 
     # Search for best model in tuning process
-    model, tuning_results = tuner.process(num_iter=3)
+    model, results = tuner.process(num_iter=3)
 
     # Evaluate model
     testset = data.load_test()
-    process_eval(model, trainset, validset, testset, tuning=True, tuning_results=tuning_results)
+    process_eval(model, trainset, validset, testset, tuning=True, results=results)
     
     return
 
@@ -381,16 +303,20 @@ def process_load(resume_training=False):
     """
     # Create settings
     setting = Settings(
-        kind=16,
+        kind='',
         input_size=(3, 32, 32),
         num_classes=10,
+        num_workers=16,
+        mixed_precision=True,
+        test_sample_size=90,
+        seed=21,
         sanity_check=False,
         debug=False)
 
     # Load checkpoint
-    model = Inception_v1(setting)
+    model = InceptionV1(setting)
     model.setting.device.move(model)
-    states = model.load_checkpoint(path='data/output/VGGNet16-1599825440-tuned.tar')
+    states = model.load_checkpoint(path='data/output/InceptionV1-1600097181-tuned.tar')
     model.setting.show()
 
     # Load data
@@ -400,13 +326,15 @@ def process_load(resume_training=False):
 
     # Resume training
     if resume_training:
-        model.setting.epochs = 2
+        model.setting.epochs = 10
+        model.setting.learning_rate = 0.0005
+        model.update_learning_rate()
         model.setting.show()
         model.fit(trainset, validset, resume=True)
 
     # Evaluate model
     testset = data.load_test()
-    process_eval(model, trainset, validset, testset, tuning=True, tuning_results=states['tuning_results'])
+    process_eval(model, trainset, validset, testset, tuning=True, results=states)
 
     return
 
@@ -415,6 +343,6 @@ if __name__ == "__main__":
     
     #process_fit()
 
-    process_tune()
+    #process_tune()
 
-    #process_load(resume_training=False)
+    process_load(resume_training=False)

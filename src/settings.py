@@ -170,11 +170,11 @@ class Settings(HyperParams):
     # Default hyper-parameters
     
     # Batch
-    DEF_BATCH_SIZE = 64
+    DEF_BATCH_SIZE = 256
     DEF_BATCH_NORM = True
     
     # Epoch
-    DEF_EPOCHS = 10
+    DEF_EPOCHS = 50
     
     # Learning rate
     DEF_LEARNING_RATE = 0.01
@@ -186,14 +186,14 @@ class Settings(HyperParams):
     DEF_DROPOUT_RATE = 0.5
     
     # Metric
-    DEF_LOSS_OPTIM = True
+    DEF_LOSS_OPTIM = False
 
     # Data
     DEF_DATA_AUGMENT = False
 
     # Early stopping
-    DEF_EARLY_STOP = False
-    DEF_ES_PATIENCE = 15
+    DEF_EARLY_STOP = True
+    DEF_ES_PATIENCE = 12
 
     # Gradient clipping
     DEF_GRAD_CLIP_NORM = False
@@ -212,8 +212,8 @@ class Settings(HyperParams):
     DEF_DEBUG = False
     DEF_DEVICE = DeviceMngr()
     DEF_NUM_WORKERS = 16
-    DEF_MIXED_PRECISION = False
-    DEF_TEST_SAMPLE_SIZE = 10
+    DEF_MIXED_PRECISION = True
+    DEF_TEST_SAMPLE_SIZE = 90
     DEF_SEED = 21
 
     def __init__(self,

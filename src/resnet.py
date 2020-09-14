@@ -14,12 +14,23 @@ from settings import Settings, HyperParamsDistrib
 from basemodel import MultiClassBaseModel
 
 
-class MyNetwork(MultiClassBaseModel):
+class ResNet(MultiClassBaseModel):
     """
-    MyNetwork
+    ResNet - Residual Network
 
-    Source:
+    Source: Deep Residual Learning for Image Recognition
+            https://arxiv.org/pdf/1512.03385.pdf
     """
+
+    # Configuration for each residual block
+    #   in format (num_filters, num_res_blocks, stride_for_first_conv2d_in_res_block)
+    config = {
+        '18': ('basic', [(64, 2, 1), (128, 2, 2), (256, 2, 2), (512, 2, 2)]), 
+        '34': ('basic', [(64, 3, 1), (128, 4, 2), (256, 6, 2), (512, 3, 2)]),
+        '50': ('bottleneck', [(64, 3, 1), (128, 4, 2), (256, 6, 2), (512, 3, 2)]),
+        '101': ('bottleneck', [(64, 3, 1), (128, 4, 2), (256, 23, 2), (512, 3, 2)]),
+        '152': ('bottleneck', [(64, 3, 1), (128, 8, 2), (256, 36, 2), (512, 3, 2)])
+    }
 
     def __init__(self, setting):
         super().__init__(setting)
@@ -40,20 +51,56 @@ class MyNetwork(MultiClassBaseModel):
         """
         Create feature layers
         """
+        # Configuration
+        block_type_str, config = ResNet.config[str(self.setting.kind)]
+        block_type = ResBottleneck if block_type_str == 'bottleneck' else ResBlock
+        expansion = 4 if block_type_str == 'bottleneck' else 1
+
+        # Layers
         layers = []
 
-        # TODO
+        # Convolution and Max-Pool
+        layers += [self.conv2d_block(num_filters=64, kernel_size=7, stride=2, padding=3)]
+        layers += [self.maxpool2d(kernel_size=3, stride=2, padding=1)]
+
+        # Residual blocks
+        for cfg_block in config:
+            num_filters, num_repeat, stride = cfg_block
+            
+            # First residual block reduce height and weight with stride
+            layers += [self.residual_block(block_type, num_filters, expansion, stride)]
+
+            # Add rest residual blocks
+            for _ in range(1, num_repeat):
+                layers += [self.residual_block(block_type, num_filters, expansion)]
                 
+        # Adaptive Average-Pool
+        layers += [self.adapt_avgpool2d(output_size=1)]
+
         return nn.Sequential(*layers)
+
+    def residual_block(self, block_type, num_filters, expansion, stride=1):
+        """
+        Create residual block
+        """
+        # Dimensions synchronize
+        if stride != 1 or self.in_channels != num_filters * expansion:
+            dim_synch = self.conv2d_block(self.in_channels, num_filters * expansion, set_output=False, activation=False, kernel_size=1, stride=stride)
+        else:
+            dim_synch = None
+        
+        # Create a block
+        layers = block_type(self, num_filters=num_filters, expansion=expansion, dim_synch=dim_synch, stride=stride)
+        
+        return layers
 
     def make_classifier_layers(self):
         """
         Create classifier layers
         """
-        layers = nn.Sequential()
-        
-        # TODO
-
+        layers = nn.Sequential(
+            nn.Linear(self.num_flat_features(), self.setting.num_classes)
+        )
         return layers
 
     def forward(self, x):
@@ -64,6 +111,85 @@ class MyNetwork(MultiClassBaseModel):
         x = torch.flatten(x, start_dim=1)
         x = self.classifier(x)
         return x
+
+class ResBlock(nn.Module):
+    """
+    Residual block
+    """
+
+    def __init__(self, network, num_filters, expansion, dim_synch=None, **kwargs):
+        """
+        Initialize layers
+        """
+        super().__init__()
+        self.dim_synch = dim_synch
+        self.res_block = nn.Sequential(
+            network.conv2d_block(num_filters=num_filters, kernel_size=3, padding=1, **kwargs),
+            network.conv2d_block(num_filters=num_filters, activation=False, kernel_size=3, padding=1)
+        )
+        return
+
+    def forward(self, x):
+        """
+        Forward propagation
+        """
+        # Save previous state
+        identity = x
+        
+        # Calculate block
+        output = self.res_block(x)
+
+        # Dimension synchronization
+        if self.dim_synch is not None:
+            identity = self.dim_synch(identity) 
+
+        # Add shortcut / skip-connection
+        output += identity
+
+        # Activation
+        output = F.relu(output)
+
+        return output
+
+class ResBottleneck(nn.Module):
+    """
+    Residual bottleneck
+    """
+
+    def __init__(self, network, num_filters, expansion, dim_synch=None, **kwargs):
+        """
+        Initialize layers
+        """
+        super().__init__()
+        self.dim_synch = dim_synch
+        self.res_bottleneck = nn.Sequential(
+            network.conv2d_block(num_filters=num_filters, kernel_size=1, **kwargs),
+            network.conv2d_block(num_filters=num_filters, kernel_size=3, padding=1),
+            network.conv2d_block(num_filters=num_filters * expansion, activation=False, kernel_size=1)
+        )
+        return
+
+    def forward(self, x):
+        """
+        Forward propagation
+        """
+        # Save previous state
+        identity = x
+        
+        # Calculate bottleneck
+        output = self.res_bottleneck(x)
+
+        # Dimension synchronization
+        if self.dim_synch is not None:
+            identity = self.dim_synch(identity) 
+
+        # Add shortcut / skip-connection
+        output += identity
+
+        # Activation
+        output = F.relu(output)
+
+        return output
 
 
 def process_eval(model, trainset, validset, testset, tuning=False, results=None):
@@ -99,7 +225,7 @@ def process_fit():
     """
     # Create settings
     setting = Settings(
-        kind='',
+        kind=101,
         input_size=(3, 32, 32),
         num_classes=10,
         # Batch
@@ -120,7 +246,7 @@ def process_fit():
         data_augment=False,
         # Early stopping
         early_stop=True,
-        es_patience=12,
+        es_patience=15,
         # Gradient clipping
         grad_clip_norm=False,
         gc_max_norm=1,
@@ -135,8 +261,8 @@ def process_fit():
         mixed_precision=True,
         test_sample_size=90,
         seed=21,
-        sanity_check=False,
-        debug=False)
+        sanity_check=True,
+        debug=True)
 
     # Load data
     data = DataMngr(setting)
@@ -144,7 +270,7 @@ def process_fit():
     validset = data.load_valid()
 
     # Create net
-    model = MyNetwork(setting)  # TODO change
+    model = ResNet(setting)
     setting.device.move(model)
     model.print_summary()
 
@@ -167,14 +293,14 @@ def process_tune():
         batch_size      = [256],
         batch_norm      = [True],
         # Epoch
-        epochs          = [50],
+        epochs          = [3],
         # Learning rate
         learning_rate   = list(np.logspace(np.log10(0.0001), np.log10(0.01), base=10, num=1000)),
         lr_factor       = list(np.logspace(np.log10(0.01), np.log10(1), base=10, num=1000)),
         lr_patience     = [10],
         # Regularization
         weight_decay    = list(np.logspace(np.log10(0.0009), np.log10(0.9), base=10, num=1000)),
-        dropout_rate    = stats.uniform(0.35, 0.75),
+        dropout_rate    = stats.uniform(0.3, 0.65),
         # Metric
         loss_optim      = [False],
         # Data
@@ -193,7 +319,7 @@ def process_tune():
 
     # Create settings
     setting = Settings(
-        kind='',
+        kind=101,
         input_size=(3, 32, 32),
         num_classes=10,
         distrib=distrib,
@@ -210,7 +336,7 @@ def process_tune():
     validset = data.load_valid()
 
     # Create tuner
-    tuner = Tuner(MyNetwork, setting)   # TODO change
+    tuner = Tuner(ResNet, setting)
 
     # Search for best model in tuning process
     model, results = tuner.process(num_iter=3)
@@ -227,9 +353,10 @@ def process_load(resume_training=False):
     """
     # Create settings
     setting = Settings(
-        kind='',
+        kind=101,
         input_size=(3, 32, 32),
         num_classes=10,
+        batch_size=256,
         num_workers=16,
         mixed_precision=True,
         test_sample_size=90,
@@ -238,9 +365,9 @@ def process_load(resume_training=False):
         debug=False)
 
     # Load checkpoint
-    model = MyNetwork(setting)  # TODO change
+    model = ResNet(setting)
     model.setting.device.move(model)
-    states = model.load_checkpoint(path='data/output/VGGNet16-1599825440-tuned.tar')
+    states = model.load_checkpoint(path='data/output/ResNet101-1600028289-tuned.tar', strict=False)
     model.setting.show()
 
     # Load data
@@ -263,8 +390,8 @@ def process_load(resume_training=False):
 
 if __name__ == "__main__":
     
-    process_fit()
+    #process_fit()
 
     #process_tune()
 
-    #process_load(resume_training=False)
+    process_load(resume_training=False)
