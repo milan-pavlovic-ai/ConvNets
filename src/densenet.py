@@ -14,48 +14,25 @@ from settings import Settings, HyperParamsDistrib
 from basemodel import MultiClassBaseModel
 
 
-class SqueezeNet(MultiClassBaseModel):
+class DenseNet(MultiClassBaseModel):
     """
-    SqueezeNet - Squeeze Network
-        Modifications
-            - Added Batch Normalization after each Convolutional layer
+    DenseNet - Densely Connected Convolutional Networks 
+            Effective implementation with bottleneck layers and compression
 
-    Source: SqueezeNet: AlexNet-level accuracy with 50x fewer parameters and <0.5MB model size
-            https://arxiv.org/pdf/1602.07360.pdf
-            SqueezeNet 1.1 has 2.4x less computation and slightly fewer parameters than SqueezeNet 1.0, without sacrificing accuracy.
-            https://github.com/DeepScale/SqueezeNet/tree/master/SqueezeNet_v1.1
+    Source: Densely Connected Convolutional Networks
+            https://arxiv.org/pdf/1608.06993.pdf
+            Configuration of DenseNet 161 model
+            https://github.com/liuzhuang13/DenseNet
     """
 
-    # Configuration
+    # Configuration 
+    #   in format (growth_rate, dense_blocks_list, num_init_features) 
     config = {
-        '1.0': [
-            ('conv', 96, 7, 2),
-            ('maxpool', 3, 2),
-            ('fire', 16, 64, 64),
-            ('fire', 16, 64, 64),
-            ('fire', 32, 128, 128),
-            ('maxpool', 3, 2),
-            ('fire', 32, 128, 128),
-            ('fire', 48, 192, 192),
-            ('fire', 48, 192, 192),
-            ('fire', 64, 256, 256),
-            ('maxpool', 3, 2),
-            ('fire', 64, 256, 256),
-        ],
-        '1.1': [
-            ('conv', 64, 3, 2),
-            ('maxpool', 3, 2),
-            ('fire', 16, 64, 64),
-            ('fire', 16, 64, 64),
-            ('maxpool', 3, 2),
-            ('fire', 32, 128, 128),
-            ('fire', 32, 128, 128),
-            ('maxpool', 3, 2),
-            ('fire', 48, 192, 192),
-            ('fire', 48, 192, 192),
-            ('fire', 64, 256, 256),
-            ('fire', 64, 256, 256),
-        ]
+        '121': (32, [6, 12, 24, 16], 64),
+        '169': (32, [6, 12, 32, 32], 64),
+        '201': (32, [6, 12, 48, 32], 64),
+        '264': (32, [6, 12, 64, 48], 64),
+        '161': (48, [6, 12, 36, 24], 96) 
     }
 
     def __init__(self, setting):
@@ -78,29 +55,29 @@ class SqueezeNet(MultiClassBaseModel):
         Create feature layers
         """
         # Configuration
-        config = SqueezeNet.config[str(self.setting.kind)]
+        config = DenseNet.config[str(self.setting.kind)]
+        growth_rate, dense_blocks_list, num_init_features = config
 
         # Layers
         layers = []
 
-        # Construct feature layers
-        for cfg in config:
-            operation_type = cfg[0]
-
-            if operation_type == 'fire':
-                _, squeeze, expand_1x1, expand_3x3 = cfg
-                layers += [Fire(self, squeeze, expand_1x1, expand_3x3)]
-
-            elif operation_type == 'maxpool':
-                _, kernel_size, stride = cfg
-                layers += [self.maxpool2d(kernel_size=kernel_size, stride=stride)]
-
-            elif operation_type == 'conv':
-                _, num_filters, kernel_size, stride = cfg
-                layers += [self.conv2d_block(num_filters=num_filters, kernel_size=kernel_size, stride=stride)]
-            else:
-                exit(1)
+        # Construct initial features
+        layers += [self.conv2d_block(num_filters=num_init_features, kernel_size=7, stride=2, padding=3)]
+        layers += [self.maxpool2d(kernel_size=3, stride=2, padding=1)]
                 
+        # Add dense blocks
+        for i, dense_block_size in enumerate(dense_blocks_list):
+            layers += [DenseBlock(self, dense_block_size, growth_rate, bottleneck_factor=4)]
+            
+            # Add transition block if it is not last dense block
+            if i != len(dense_blocks_list) - 1:
+                layers += [TransitionBlock(self, compression_factor=2)]
+
+        # Construct final features
+        layers += [nn.BatchNorm2d(num_features=self.in_channels)]
+        layers += [nn.ReLU()]
+        layers += [self.adapt_avgpool2d(output_size=1)]
+
         return nn.Sequential(*layers)
 
     def make_classifier_layers(self):
@@ -108,9 +85,7 @@ class SqueezeNet(MultiClassBaseModel):
         Create classifier layers
         """
         layers = nn.Sequential(
-            nn.Dropout(p=self.setting.dropout_rate),
-            self.conv2d_block(num_filters=self.setting.num_classes, kernel_size=1),
-            self.adapt_avgpool2d(output_size=1)
+            nn.Linear(self.num_flat_features(), self.setting.num_classes)
         )
         return layers
 
@@ -119,38 +94,98 @@ class SqueezeNet(MultiClassBaseModel):
         Forward propagation
         """
         x = self.features(x)
+        x = torch.flatten(x, start_dim=1)
         x = self.classifier(x)
-        return torch.flatten(x, start_dim=1)
+        return x
 
-class Fire(nn.Module):
+class DenseLayer(nn.Module):
     """
-    Fire module
+    Dense layer
     """
 
-    def __init__(self, network, squeeze_num, expand_1x1_num, expand_3x3_num):
+    def __init__(self, network, growth_rate, bottleneck_factor):
         """
-        Initialize layers
+        Initalize layers
         """
         super().__init__()
-        self.squeeze = network.conv2d_block(num_filters=squeeze_num, kernel_size=1)
-        self.expand_1x1 = network.conv2d_block(network.in_channels, expand_1x1_num, set_output=False, kernel_size=1)
-        self.expand_3x3 = network.conv2d_block(network.in_channels, expand_3x3_num, set_output=True, kernel_size=3, padding=1)
-        network.in_channels = expand_1x1_num + expand_3x3_num
+
+        self.bottleneck = nn.Sequential(
+            nn.BatchNorm2d(network.in_channels),
+            nn.ReLU(),
+            network.conv2d(num_filters=bottleneck_factor * growth_rate, kernel_size=1)
+        )
+
+        self.conv_block = nn.Sequential(
+            nn.BatchNorm2d(network.in_channels),
+            nn.ReLU(),
+            network.conv2d(num_filters=growth_rate, kernel_size=3, padding=1)
+        )
+
+        self.dropout = nn.Dropout(p=network.setting.dropout_rate)
         return
 
     def forward(self, x):
         """
         Forward propagation
         """
-        # Squeeze layer
-        x = self.squeeze(x)
+        # Bottleneck layer
+        output = self.bottleneck(x)
+        output = self.conv_block(output)
 
-        # Expand layer
-        branch1 = self.expand_1x1(x)
-        branch2 = self.expand_3x3(x)
-        output = [branch1, branch2]
+        # Dropout
+        output = self.dropout(output)
 
-        return torch.cat(output, dim=1)
+        # Stack input and output, this will be input for next layer
+        return torch.cat([x, output], dim=1)
+
+class DenseBlock(nn.Module):
+    """
+    Dense block
+    """
+
+    def __init__(self, network, dense_block_size, growth_rate, bottleneck_factor):
+        """
+        Initialize layers
+        """
+        super().__init__()
+        layers = []
+        num_input_filters = network.in_channels
+
+        # Create a dense block from dense layers
+        for i in range(dense_block_size):
+            layers += [DenseLayer(network, growth_rate, bottleneck_factor)]
+            network.in_channels += num_input_filters + i * growth_rate
+            if network.setting.debug:
+                print('[{}] Input shape: ({} x {} x {})'.format(i+1, network.in_channels, network.height, network.width))
+
+        self.dense_block = nn.Sequential(*layers)
+        return
+
+    def forward(self, x):
+        """
+        Forward propagation
+        """
+        return self.dense_block(x)
+
+class TransitionBlock(nn.Sequential):
+    """
+    Transition block
+    """
+
+    def __init__(self, network, compression_factor):
+        """
+        Initialize layers
+        """
+        super().__init__()
+
+        self.add_module('batch_norm', nn.BatchNorm2d(network.in_channels))
+        self.add_module('relu', nn.ReLU())
+
+        num_filters = network.in_channels // compression_factor
+        self.add_module('conv', network.conv2d(num_filters=num_filters, kernel_size=1))
+        
+        self.add_module(('avg_pool'), network.avgpool2d(kernel_size=2, stride=2))
+        return
 
 
 def process_eval(model, trainset, validset, testset, tuning=False, results=None):
@@ -186,7 +221,7 @@ def process_fit():
     """
     # Create settings
     setting = Settings(
-        kind='1.1',
+        kind='201',
         input_size=(3, 32, 32),
         num_classes=10,
         # Batch
@@ -231,9 +266,9 @@ def process_fit():
     validset = data.load_valid()
 
     # Create net
-    model = SqueezeNet(setting)
+    model = DenseNet(setting)
     setting.device.move(model)
-    model.print_summary()
+    model.print_summary(additional=False)
 
     # Train model
     model.fit(trainset, validset)
@@ -261,7 +296,7 @@ def process_tune():
         lr_patience     = [10],
         # Regularization
         weight_decay    = list(np.logspace(np.log10(0.0009), np.log10(0.9), base=10, num=1000)),
-        dropout_rate    = stats.uniform(0.35, 0.55),
+        dropout_rate    = stats.uniform(0.35, 0.75),
         # Metric
         loss_optim      = [False],
         # Data
@@ -280,7 +315,7 @@ def process_tune():
 
     # Create settings
     setting = Settings(
-        kind='1.1',
+        kind='169',
         input_size=(3, 32, 32),
         num_classes=10,
         distrib=distrib,
@@ -297,7 +332,7 @@ def process_tune():
     validset = data.load_valid()
 
     # Create tuner
-    tuner = Tuner(SqueezeNet, setting)
+    tuner = Tuner(DenseNet, setting)
 
     # Search for best model in tuning process
     model, results = tuner.process(num_iter=3)
@@ -314,7 +349,7 @@ def process_load(resume_training=False):
     """
     # Create settings
     setting = Settings(
-        kind='1.1',
+        kind='',
         input_size=(3, 32, 32),
         num_classes=10,
         num_workers=16,
@@ -325,9 +360,9 @@ def process_load(resume_training=False):
         debug=False)
 
     # Load checkpoint
-    model = SqueezeNet(setting)
+    model = DenseNet(setting)
     model.setting.device.move(model)
-    states = model.load_checkpoint(path='data/output/SqueezeNet1.1-1600118154-tuned.tar')
+    states = model.load_checkpoint(path='data/output/VGGNet16-1599825440-tuned.tar')
     model.setting.show()
 
     # Load data
@@ -350,8 +385,8 @@ def process_load(resume_training=False):
 
 if __name__ == "__main__":
     
-    #process_fit()
+    process_fit()
 
     #process_tune()
 
-    process_load(resume_training=False)
+    #process_load(resume_training=False)

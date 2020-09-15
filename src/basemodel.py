@@ -752,15 +752,19 @@ class MultiClassBaseModel(nn.Module):
             padding_H, padding_W = layer.padding
 
         # Dilation
-        if type(layer.dilation) is int:
-            dilation_H = layer.dilation
-            dilation_W = layer.dilation
+        if hasattr(layer, 'dilation'):
+            if type(layer.dilation) is int:
+                dilation_H = layer.dilation
+                dilation_W = layer.dilation
+            else:
+                dilation_H, dilation_W = layer.dilation
         else:
-            dilation_H, dilation_W = layer.dilation
+            dilation_H = 1
+            dilation_W = 1
 
         # Debug
-        if self.setting.debug:
-            print('[Outshape BEFORE] Layer={}, Num of Channels={}, Height={}, Width={}'.format(layer._get_name(), self.in_channels, self.height, self.width))
+        #if self.setting.debug:
+        #    print('[Outshape BEFORE] Layer={}, Num of Channels={}, Height={}, Width={}'.format(layer._get_name(), self.in_channels, self.height, self.width))
 
         # Calculate output height and weight
         self.height = int(np.floor(1 + (self.height + 2*padding_H - dilation_H * (kernel_size_H-1) - 1) / stride_H))
@@ -959,19 +963,26 @@ class MultiClassBaseModel(nn.Module):
         return
 
 
+    def conv2d(self, in_channels=None, num_filters=None, set_output=True, **kwargs):
+        """
+        Convolution 2D
+        """
+        if in_channels is not None:
+            layer = nn.Conv2d(in_channels, num_filters, **kwargs)
+        else:
+            layer = nn.Conv2d(self.in_channels, num_filters, **kwargs)
+            
+        if set_output:
+            self.save_conv_outshape(layer)
+
+        return layer
+
     def conv2d_block(self, in_channels=None, num_filters=None, set_output=True, activation=True, **kwargs):
         """
         Convolutional 2D block
         """
-        layers = []
-
         # Convolutional layer
-        if set_output:
-            layer = nn.Conv2d(self.in_channels, num_filters, **kwargs)
-            self.save_conv_outshape(layer)
-        else:
-            layer = nn.Conv2d(in_channels, num_filters, **kwargs)
-        layers += [layer]
+        layers = [self.conv2d(in_channels, num_filters, set_output, **kwargs)]
 
         # Batch normalization layer
         if self.setting.batch_norm:
@@ -989,6 +1000,15 @@ class MultiClassBaseModel(nn.Module):
         Maximum Pooling 2D
         """
         layer = nn.MaxPool2d(**kwargs)
+        if set_output:
+            self.save_conv_outshape(layer)
+        return layer
+
+    def avgpool2d(self, set_output=True, **kwargs):
+        """
+        Average Pooling 2D
+        """
+        layer = nn.AvgPool2d(**kwargs)
         if set_output:
             self.save_conv_outshape(layer)
         return layer
