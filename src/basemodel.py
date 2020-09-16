@@ -967,10 +967,27 @@ class MultiClassBaseModel(nn.Module):
         """
         Convolution 2D
         """
-        if in_channels is not None:
-            layer = nn.Conv2d(in_channels, num_filters, **kwargs)
-        else:
-            layer = nn.Conv2d(self.in_channels, num_filters, **kwargs)
+        if in_channels is None:
+            in_channels = self.in_channels
+            
+        layer = nn.Conv2d(in_channels, num_filters, **kwargs)
+            
+        if set_output:
+            self.save_conv_outshape(layer)
+
+        return layer
+
+    def conv2d_depthwise(self, in_channels=None, num_filters=None, set_output=True, **kwargs):
+        """
+        Convolution 2D depth-wise
+        """
+        if in_channels is None:
+            in_channels = self.in_channels
+
+        if num_filters is None:
+            num_filters = self.in_channels
+
+        layer = nn.Conv2d(in_channels, num_filters, groups=in_channels, **kwargs)
             
         if set_output:
             self.save_conv_outshape(layer)

@@ -14,26 +14,13 @@ from settings import Settings, HyperParamsDistrib
 from basemodel import MultiClassBaseModel
 
 
-class DenseNet(MultiClassBaseModel):
+class MobileNetV1(MultiClassBaseModel):
     """
-    DenseNet - Densely Connected Convolutional Networks 
-            Effective implementation with bottleneck layers and compression
+    MobileNet - Mobile network
 
-    Source: Densely Connected Convolutional Networks
-            https://arxiv.org/pdf/1608.06993.pdf
-            Configuration of DenseNet 161 model
-            https://github.com/liuzhuang13/DenseNet
+    Source: MobileNets: Efficient Convolutional Neural Networks for Mobile VisionApplications
+            https://arxiv.org/pdf/1704.04861.pdf
     """
-
-    # Configuration 
-    #   in format (growth_rate, dense_blocks_list, num_init_features) 
-    config = {
-        '121': (32, [6, 12, 24, 16], 64),
-        '169': (32, [6, 12, 32, 32], 64),
-        '201': (32, [6, 12, 48, 32], 64),
-        '264': (32, [6, 12, 64, 48], 64),
-        '161': (48, [6, 12, 36, 24], 96) 
-    }
 
     def __init__(self, setting):
         super().__init__(setting)
@@ -54,31 +41,30 @@ class DenseNet(MultiClassBaseModel):
         """
         Create feature layers
         """
-        # Configuration
-        config = DenseNet.config[str(self.setting.kind)]
-        growth_rate, dense_blocks_list, num_init_features = config
+        layers = nn.Sequential(
+            Conv2dBlock(self, num_filters=32, kernel_size=3, stride=2, padding=1),
 
-        # Layers
-        layers = []
+            Conv2dBlockDW(self, num_filters=64, kernel_size=3, padding=1),
 
-        # Construct initial features
-        layers += [self.conv2d_block(num_filters=num_init_features, kernel_size=7, stride=2, padding=3)]
-        layers += [self.maxpool2d(kernel_size=3, stride=2, padding=1)]
-                
-        # Add dense blocks
-        for i, dense_block_size in enumerate(dense_blocks_list):
-            layers += [DenseBlock(self, dense_block_size, growth_rate, bottleneck_factor=4)]
-            
-            # Add transition block if it is not last dense block
-            if i != len(dense_blocks_list) - 1:
-                layers += [TransitionBlock(self, compression_factor=2)]
+            Conv2dBlockDW(self, num_filters=128, kernel_size=3, stride=2, padding=1),
+            Conv2dBlockDW(self, num_filters=128, kernel_size=3, padding=1),
 
-        # Construct final features
-        layers += [nn.BatchNorm2d(num_features=self.in_channels)]
-        layers += [nn.ReLU()]
-        layers += [self.adapt_avgpool2d(output_size=1)]
+            Conv2dBlockDW(self, num_filters=256, kernel_size=3, stride=2, padding=1),
+            Conv2dBlockDW(self, num_filters=256, kernel_size=3, padding=1),
 
-        return nn.Sequential(*layers)
+            Conv2dBlockDW(self, num_filters=512, kernel_size=3, stride=2, padding=1),
+            Conv2dBlockDW(self, num_filters=512, kernel_size=3, padding=1),
+            Conv2dBlockDW(self, num_filters=512, kernel_size=3, padding=1),
+            Conv2dBlockDW(self, num_filters=512, kernel_size=3, padding=1),
+            Conv2dBlockDW(self, num_filters=512, kernel_size=3, padding=1),
+            Conv2dBlockDW(self, num_filters=512, kernel_size=3, padding=1),
+
+            Conv2dBlockDW(self, num_filters=1024, kernel_size=3, stride=2, padding=1),
+            Conv2dBlockDW(self, num_filters=1024, kernel_size=3, padding=1),
+
+            self.adapt_avgpool2d(output_size=1)
+        )
+        return layers
 
     def make_classifier_layers(self):
         """
@@ -98,93 +84,65 @@ class DenseNet(MultiClassBaseModel):
         x = self.classifier(x)
         return x
 
-class DenseLayer(nn.Module):
+class Conv2dBlock(nn.Sequential):
     """
-    Dense layer
-    """
-
-    def __init__(self, network, growth_rate, bottleneck_factor):
-        """
-        Initalize layers
-        """
-        super().__init__()
-
-        self.bottleneck = nn.Sequential(
-            nn.BatchNorm2d(network.in_channels),
-            nn.ReLU(),
-            network.conv2d(num_filters=bottleneck_factor * growth_rate, kernel_size=1)
-        )
-
-        self.conv_block = nn.Sequential(
-            nn.BatchNorm2d(network.in_channels),
-            nn.ReLU(),
-            network.conv2d(num_filters=growth_rate, kernel_size=3, padding=1)
-        )
-
-        self.dropout = nn.Dropout(p=network.setting.dropout_rate)
-        return
-
-    def forward(self, x):
-        """
-        Forward propagation
-        """
-        # Bottleneck layer
-        output = self.bottleneck(x)
-        output = self.conv_block(output)
-
-        # Dropout
-        output = self.dropout(output)
-
-        # Stack input and output, this will be input for next layer
-        return torch.cat([x, output], dim=1)
-
-class DenseBlock(nn.Module):
-    """
-    Dense block
+    Convolution block
     """
 
-    def __init__(self, network, dense_block_size, growth_rate, bottleneck_factor):
-        """
-        Initialize layers
-        """
-        super().__init__()
-        layers = []
-        num_input_filters = network.in_channels
-
-        # Create a dense block from dense layers
-        for i in range(dense_block_size):
-            layers += [DenseLayer(network, growth_rate, bottleneck_factor)]
-            network.in_channels += num_input_filters + i * growth_rate
-            if network.setting.debug:
-                print('[{}] Input shape: ({} x {} x {})'.format(i+1, network.in_channels, network.height, network.width))
-
-        self.dense_block = nn.Sequential(*layers)
-        return
-
-    def forward(self, x):
-        """
-        Forward propagation
-        """
-        return self.dense_block(x)
-
-class TransitionBlock(nn.Sequential):
-    """
-    Transition block
-    """
-
-    def __init__(self, network, compression_factor):
+    def __init__(self, network, in_channels=None, num_filters=None, set_output=True, activation=True, **kwargs):
         """
         Initialize layers
         """
         super().__init__()
 
-        self.add_module('batch_norm', nn.BatchNorm2d(network.in_channels))
-        self.add_module('relu', nn.ReLU())
+        # Convolutional layer
+        self.add_module('conv', network.conv2d(in_channels, num_filters, set_output, **kwargs))
 
-        num_filters = network.in_channels // compression_factor
-        self.add_module('conv', network.conv2d(num_filters=num_filters, kernel_size=1))
-        
-        self.add_module(('avg_pool'), network.avgpool2d(kernel_size=2, stride=2))
+        # Batch normalization layer
+        if network.setting.batch_norm:
+            self.add_module('bn', nn.BatchNorm2d(num_features=num_filters))
+
+        # Activation layer
+        if activation:
+            self.add_module('relu', nn.ReLU())
+
+        return
+
+class Conv2dBlockDW(nn.Sequential):
+    """
+    Convolution depth-wise block
+    """
+
+    def __init__(self, network, in_channels=None, num_filters=None, set_output=True, activation=True, **kwargs):
+        """
+        Initialize layers
+        """
+        super().__init__()
+
+        # Convolution Depth-Wise layer
+        self.add_module('conv_dw', network.conv2d_depthwise(in_channels, in_channels, set_output, **kwargs))
+
+        # Batch normalization layer
+        if network.setting.batch_norm:
+            if in_channels is None:
+                in_channels = network.in_channels
+            self.add_module('bn_dw', nn.BatchNorm2d(num_features=in_channels))
+
+        # Activation layer
+        if activation:
+            self.add_module('relu_dw', nn.ReLU())
+
+        # Convolution Point-Wise layer
+        self.add_module('conv_pw', network.conv2d(in_channels, num_filters, set_output, kernel_size=1))
+
+        # Batch normalization layer
+        if network.setting.batch_norm:
+            self.add_module('bn_pw', nn.BatchNorm2d(num_features=num_filters))
+
+        # Activation layer
+        if activation:
+            self.add_module('relu_pw', nn.ReLU())
+
         return
 
 
@@ -221,7 +179,7 @@ def process_fit():
     """
     # Create settings
     setting = Settings(
-        kind='201',
+        kind='',
         input_size=(3, 32, 32),
         num_classes=10,
         # Batch
@@ -266,9 +224,9 @@ def process_fit():
     validset = data.load_valid()
 
     # Create net
-    model = DenseNet(setting)
+    model = MobileNetV1(setting)
     setting.device.move(model)
-    model.print_summary(additional=False)
+    model.print_summary()
 
     # Train model
     model.fit(trainset, validset)
@@ -291,12 +249,12 @@ def process_tune():
         # Epoch
         epochs          = [50],
         # Learning rate
-        learning_rate   = list(np.logspace(np.log10(0.001), np.log10(0.09), base=10, num=1000)),
+        learning_rate   = list(np.logspace(np.log10(0.0001), np.log10(0.01), base=10, num=1000)),
         lr_factor       = list(np.logspace(np.log10(0.01), np.log10(1), base=10, num=1000)),
         lr_patience     = [10],
         # Regularization
         weight_decay    = list(np.logspace(np.log10(0.0009), np.log10(0.9), base=10, num=1000)),
-        dropout_rate    = stats.uniform(0.15, 0.75),
+        dropout_rate    = stats.uniform(0.35, 0.75),
         # Metric
         loss_optim      = [False],
         # Data
@@ -315,7 +273,7 @@ def process_tune():
 
     # Create settings
     setting = Settings(
-        kind='169',
+        kind='',
         input_size=(3, 32, 32),
         num_classes=10,
         distrib=distrib,
@@ -332,7 +290,7 @@ def process_tune():
     validset = data.load_valid()
 
     # Create tuner
-    tuner = Tuner(DenseNet, setting)
+    tuner = Tuner(MobileNetV1, setting)
 
     # Search for best model in tuning process
     model, results = tuner.process(num_iter=3)
@@ -349,7 +307,7 @@ def process_load(resume_training=False):
     """
     # Create settings
     setting = Settings(
-        kind='169',
+        kind='',
         input_size=(3, 32, 32),
         num_classes=10,
         num_workers=16,
@@ -360,9 +318,9 @@ def process_load(resume_training=False):
         debug=False)
 
     # Load checkpoint
-    model = DenseNet(setting)
+    model = MobileNetV1(setting)
     model.setting.device.move(model)
-    states = model.load_checkpoint(path='data/output/DenseNet169-1600211059-tuned.tar')
+    states = model.load_checkpoint(path='data/output/VGGNet16-1599825440-tuned.tar')
     model.setting.show()
 
     # Load data
@@ -385,8 +343,8 @@ def process_load(resume_training=False):
 
 if __name__ == "__main__":
     
-    #process_fit()
+    process_fit()
 
     #process_tune()
 
-    process_load(resume_training=False)
+    #process_load(resume_training=False)
