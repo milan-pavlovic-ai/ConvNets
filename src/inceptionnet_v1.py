@@ -14,7 +14,7 @@ from settings import Settings, HyperParamsDistrib
 from basemodel import MultiClassBaseModel
 
 
-class InceptionV1(MultiClassBaseModel):
+class InceptionNetV1(MultiClassBaseModel):
     """
     Inception v1 - also known as GoogLeNet
         Modifications
@@ -220,7 +220,7 @@ def process_fit():
     validset = data.load_valid()
 
     # Create net
-    model = InceptionV1(setting)
+    model = InceptionNetV1(setting)
     setting.device.move(model)
     model.print_summary()
 
@@ -280,19 +280,19 @@ def process_tune():
         sanity_check=False,
         debug=False)
 
-    # Load data for evaluation
-    data = DataMngr(setting)
-    trainset = data.load_train()
-    validset = data.load_valid()
-
     # Create tuner
-    tuner = Tuner(InceptionV1, setting)
+    tuner = Tuner(InceptionNetV1, setting)
 
     # Search for best model in tuning process
     model, results = tuner.process(num_iter=3)
 
-    # Evaluate model
+    # Load data for evaluation
+    data = DataMngr(model.setting)
+    trainset = data.load_train()
+    validset = data.load_valid()
     testset = data.load_test()
+
+    # Evaluate model
     process_eval(model, trainset, validset, testset, tuning=True, results=results)
     
     return
@@ -314,7 +314,7 @@ def process_load(resume_training=False):
         debug=False)
 
     # Load checkpoint
-    model = InceptionV1(setting)
+    model = InceptionNetV1(setting)
     model.setting.device.move(model)
     states = model.load_checkpoint(path='data/output/InceptionV1-1600097181-tuned.tar')
     model.setting.show()

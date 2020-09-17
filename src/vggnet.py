@@ -60,22 +60,11 @@ class VGGNet(MultiClassBaseModel):
 
             if element == 'M':
                 # Max-pooling layer
-                layer = nn.MaxPool2d(kernel_size=(2, 2), stride=2)
-                self.save_conv_outshape(layer)
-                layers += [layer]
+                layers += [self.maxpool2d(kernel_size=2, stride=2)]
             else:
                 # Convolutional layer
-                layer = nn.Conv2d(self.in_channels, element, kernel_size=(3, 3), stride=1, padding=1)
-                self.save_conv_outshape(layer)
-                layers += [layer]
+                layers += [self.conv2d_block(num_filters=element, kernel_size=3, padding=1)]
 
-                # Batch normalization layer
-                if self.setting.batch_norm:
-                    layers += [nn.BatchNorm2d(num_features=self.in_channels)]
-
-                # Activation layer
-                layers += [nn.ReLU()]
-                
         return nn.Sequential(*layers)
 
     def make_classifier_layers(self):
@@ -84,11 +73,11 @@ class VGGNet(MultiClassBaseModel):
         """
         layers = nn.Sequential(
             nn.Linear(self.num_flat_features(), 4096),
-            nn.ReLU(),
+            nn.ReLU(inplace=True),
             nn.Dropout(p=self.setting.dropout_rate),
 
             nn.Linear(4096, 4096),
-            nn.ReLU(),
+            nn.ReLU(inplace=True),
             nn.Dropout(p=self.setting.dropout_rate),
 
             nn.Linear(4096, self.setting.num_classes)
@@ -244,19 +233,19 @@ def process_tune():
         sanity_check=False,
         debug=False)
 
-    # Load data for evaluation
-    data = DataMngr(setting)
-    trainset = data.load_train()
-    validset = data.load_valid()
-
     # Create tuner
     tuner = Tuner(VGGNet, setting)
 
     # Search for best model in tuning process
     model, results = tuner.process(num_iter=3)
 
-    # Evaluate model
+    # Load data for evaluation
+    data = DataMngr(model.setting)
+    trainset = data.load_train()
+    validset = data.load_valid()
     testset = data.load_test()
+
+    # Evaluate model
     process_eval(model, trainset, validset, testset, tuning=True, results=results)
     
     return

@@ -291,19 +291,19 @@ def process_tune():
         sanity_check=False,
         debug=False)
 
-    # Load data for evaluation
-    data = DataMngr(setting)
-    trainset = data.load_train()
-    validset = data.load_valid()
-
     # Create tuner
     tuner = Tuner(SqueezeNet, setting)
 
     # Search for best model in tuning process
     model, results = tuner.process(num_iter=3)
 
-    # Evaluate model
+    # Load data for evaluation
+    data = DataMngr(model.setting)
+    trainset = data.load_train()
+    validset = data.load_valid()
     testset = data.load_test()
+
+    # Evaluate model
     process_eval(model, trainset, validset, testset, tuning=True, results=results)
     
     return

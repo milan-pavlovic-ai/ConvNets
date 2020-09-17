@@ -970,7 +970,8 @@ class MultiClassBaseModel(nn.Module):
         if in_channels is None:
             in_channels = self.in_channels
             
-        layer = nn.Conv2d(in_channels, num_filters, **kwargs)
+        bias = not self.setting.batch_norm
+        layer = nn.Conv2d(in_channels, num_filters, **kwargs, bias=bias)
             
         if set_output:
             self.save_conv_outshape(layer)
@@ -987,7 +988,8 @@ class MultiClassBaseModel(nn.Module):
         if num_filters is None:
             num_filters = self.in_channels
 
-        layer = nn.Conv2d(in_channels, num_filters, groups=in_channels, **kwargs)
+        bias = not self.setting.batch_norm
+        layer = nn.Conv2d(in_channels, num_filters, groups=in_channels, **kwargs, bias=bias)
             
         if set_output:
             self.save_conv_outshape(layer)
@@ -1007,7 +1009,7 @@ class MultiClassBaseModel(nn.Module):
 
         # Activation layer
         if activation:
-            layers += [nn.ReLU()]
+            layers += [nn.ReLU(inplace=True)]
 
         # Convolutional block
         return nn.Sequential(*layers)
@@ -1060,7 +1062,7 @@ class Conv2dBlock(nn.Sequential):
 
         # Activation layer
         if activation:
-            self.add_module('relu', nn.ReLU())
+            self.add_module('relu', nn.ReLU(inplace=True))
 
         return
 
@@ -1087,7 +1089,7 @@ class ConvNet(MultiClassBaseModel):
         # Classifier
         self.classifier = nn.Sequential(
             nn.Linear(self.num_flat_features(), 2048),
-            nn.ReLU(),
+            nn.ReLU(inplace=True),
             nn.Dropout(p=self.setting.dropout_rate),
             nn.Linear(2048, self.setting.num_classes))
 

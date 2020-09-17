@@ -75,7 +75,7 @@ class DenseNet(MultiClassBaseModel):
 
         # Construct final features
         layers += [nn.BatchNorm2d(num_features=self.in_channels)]
-        layers += [nn.ReLU()]
+        layers += [nn.ReLU(inplace=True)]
         layers += [self.adapt_avgpool2d(output_size=1)]
 
         return nn.Sequential(*layers)
@@ -111,13 +111,13 @@ class DenseLayer(nn.Module):
 
         self.bottleneck = nn.Sequential(
             nn.BatchNorm2d(network.in_channels),
-            nn.ReLU(),
+            nn.ReLU(inplace=True),
             network.conv2d(num_filters=bottleneck_factor * growth_rate, kernel_size=1)
         )
 
         self.conv_block = nn.Sequential(
             nn.BatchNorm2d(network.in_channels),
-            nn.ReLU(),
+            nn.ReLU(inplace=True),
             network.conv2d(num_filters=growth_rate, kernel_size=3, padding=1)
         )
 
@@ -179,7 +179,7 @@ class TransitionBlock(nn.Sequential):
         super().__init__()
 
         self.add_module('batch_norm', nn.BatchNorm2d(network.in_channels))
-        self.add_module('relu', nn.ReLU())
+        self.add_module('relu', nn.ReLU(inplace=True))
 
         num_filters = network.in_channels // compression_factor
         self.add_module('conv', network.conv2d(num_filters=num_filters, kernel_size=1))
@@ -286,24 +286,24 @@ def process_tune():
     # Hyper-parameters search space
     distrib = HyperParamsDistrib(
         # Batch
-        batch_size      = [256],
+        batch_size      = [64],
         batch_norm      = [True],
         # Epoch
-        epochs          = [75],
+        epochs          = [100],
         # Learning rate
         learning_rate   = list(np.logspace(np.log10(0.0001), np.log10(0.1), base=10, num=1000)),
         lr_factor       = list(np.logspace(np.log10(0.01), np.log10(1), base=10, num=1000)),
         lr_patience     = [10],
         # Regularization
         weight_decay    = list(np.logspace(np.log10(0.0009), np.log10(0.9), base=10, num=1000)),
-        dropout_rate    = stats.uniform(0.15, 0.75),
+        dropout_rate    = stats.uniform(0.35, 0.75),
         # Metric
         loss_optim      = [False],
         # Data
         data_augment    = [False],
         # Early stopping
         early_stop      = [True],
-        es_patience     = [12],
+        es_patience     = [15],
         # Gradient clipping
         grad_clip_norm  = [False],
         gc_max_norm     = [1],
@@ -326,19 +326,19 @@ def process_tune():
         sanity_check=False,
         debug=False)
 
-    # Load data for evaluation
-    data = DataMngr(setting)
-    trainset = data.load_train()
-    validset = data.load_valid()
-
     # Create tuner
     tuner = Tuner(DenseNet, setting)
 
     # Search for best model in tuning process
     model, results = tuner.process(num_iter=3)
 
-    # Evaluate model
+    # Load data for evaluation
+    data = DataMngr(setting)
+    trainset = data.load_train()
+    validset = data.load_valid()
     testset = data.load_test()
+
+    # Evaluate model
     process_eval(model, trainset, validset, testset, tuning=True, results=results)
     
     return

@@ -106,7 +106,7 @@ class Conv2dBlockDW(nn.Sequential):
 
         # Activation layer
         if activation:
-            self.add_module('relu_dw', nn.ReLU())
+            self.add_module('relu_dw', nn.ReLU(inplace=True))
 
         # Convolution Point-Wise layer
         self.add_module('conv_pw', network.conv2d(in_channels, num_filters, set_output, kernel_size=1))
@@ -117,7 +117,7 @@ class Conv2dBlockDW(nn.Sequential):
 
         # Activation layer
         if activation:
-            self.add_module('relu_pw', nn.ReLU())
+            self.add_module('relu_pw', nn.ReLU(inplace=True))
 
         return
 
@@ -260,19 +260,19 @@ def process_tune():
         sanity_check=False,
         debug=False)
 
-    # Load data for evaluation
-    data = DataMngr(setting)
-    trainset = data.load_train()
-    validset = data.load_valid()
-
     # Create tuner
     tuner = Tuner(MobileNetV1, setting)
 
     # Search for best model in tuning process
     model, results = tuner.process(num_iter=3)
 
-    # Evaluate model
+    # Load data for evaluation
+    data = DataMngr(model.setting)
+    trainset = data.load_train()
+    validset = data.load_valid()
     testset = data.load_test()
+
+    # Evaluate model
     process_eval(model, trainset, validset, testset, tuning=True, results=results)
     
     return

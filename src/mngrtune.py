@@ -47,12 +47,15 @@ class Tuner:
 
         # Initialization
         best_score = -1
-        data = DataMngr(self.setting)
         best_model_index = 0
         self.results = {'hparams':[], 'scores':[], 'best_model_index':0}
 
         # Load, split and transform data once if batch size is fixed
         fixed_batch_size = len(self.setting.distrib.batch_size) == 1
+        if fixed_batch_size:
+            self.setting.batch_size = self.setting.distrib.batch_size[0]
+
+        data = DataMngr(self.setting)
         if fixed_batch_size:
             trainset = data.load_train()
             validset = data.load_valid()
