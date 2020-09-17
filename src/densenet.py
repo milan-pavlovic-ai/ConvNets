@@ -289,9 +289,9 @@ def process_tune():
         batch_size      = [256],
         batch_norm      = [True],
         # Epoch
-        epochs          = [50],
+        epochs          = [75],
         # Learning rate
-        learning_rate   = list(np.logspace(np.log10(0.001), np.log10(0.09), base=10, num=1000)),
+        learning_rate   = list(np.logspace(np.log10(0.0001), np.log10(0.1), base=10, num=1000)),
         lr_factor       = list(np.logspace(np.log10(0.01), np.log10(1), base=10, num=1000)),
         lr_patience     = [10],
         # Regularization
@@ -387,6 +387,6 @@ if __name__ == "__main__":
     
     #process_fit()
 
-    #process_tune()
+    process_tune()
 
-    process_load(resume_training=False)
+    #process_load(resume_training=False)

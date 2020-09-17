@@ -1040,6 +1040,31 @@ class MultiClassBaseModel(nn.Module):
         return layer
 
 
+class Conv2dBlock(nn.Sequential):
+    """
+    Convolution block
+    """
+
+    def __init__(self, network, in_channels=None, num_filters=None, set_output=True, activation=True, **kwargs):
+        """
+        Initialize layers
+        """
+        super().__init__()
+
+        # Convolutional layer
+        self.add_module('conv', network.conv2d(in_channels, num_filters, set_output, **kwargs))
+
+        # Batch normalization layer
+        if network.setting.batch_norm:
+            self.add_module('bn', nn.BatchNorm2d(num_features=num_filters))
+
+        # Activation layer
+        if activation:
+            self.add_module('relu', nn.ReLU())
+
+        return
+
+
 class ConvNet(MultiClassBaseModel):
     """
     Convolutional neural network

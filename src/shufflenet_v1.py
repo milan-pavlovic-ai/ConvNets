@@ -14,13 +14,24 @@ from settings import Settings, HyperParamsDistrib
 from basemodel import MultiClassBaseModel, Conv2dBlock
 
 
-class MobileNetV1(MultiClassBaseModel):
+class ShuffleNetV1(MultiClassBaseModel):
     """
-    MobileNet - Mobile network
+    ShuffleNet - Shuffle network 
+                Implementation of 1.0x scaler factor with ability to choose group factor
 
-    Source: MobileNets: Efficient Convolutional Neural Networks for Mobile VisionApplications
-            https://arxiv.org/pdf/1704.04861.pdf
+    Source: ShuffleNet: An Extremely Efficient Convolutional Neural Network for Mobile Devices
+            https://arxiv.org/pdf/1707.01083.pdf
     """
+
+    # Configuration
+    #   in format (stride, repeat, out_channels) for each block
+    config = {
+        'g1': [(2, 1, 144), (1, 3, 144), (2, 1, 288), (1, 7, 288), (2, 1, 576), (1, 3, 576)],
+        'g2': [(2, 1, 200), (1, 3, 200), (2, 1, 400), (1, 7, 400), (2, 1, 800), (1, 3, 800)],
+        'g3': [(2, 1, 240), (1, 3, 240), (2, 1, 480), (1, 7, 480), (2, 1, 960), (1, 3, 960)],
+        'g4': [(2, 1, 272), (1, 3, 272), (2, 1, 544), (1, 7, 544), (2, 1, 1088), (1, 3, 1088)],
+        'g8': [(2, 1, 384), (1, 3, 384), (2, 1, 768), (1, 7, 768), (2, 1, 1536), (1, 3, 1536)],
+    }
 
     def __init__(self, setting):
         super().__init__(setting)
@@ -41,30 +52,28 @@ class MobileNetV1(MultiClassBaseModel):
         """
         Create feature layers
         """
-        layers = nn.Sequential(
-            Conv2dBlock(self, num_filters=32, kernel_size=3, stride=2, padding=1),
+        # Configuration
+        config = ShuffleNetV1.config[str(self.setting.kind)]
+        groups = int(self.setting.kind[1:])
 
-            Conv2dBlockDW(self, num_filters=64, kernel_size=3, padding=1),
+        # Construct layers
+        layers = []
+        layers += [self.conv2d_block(num_filters=24, kernel_size=3, stride=2, padding=1)]
+        layers += [self.maxpool2d(kernel_size=3, stride=2, padding=1)]
 
-            Conv2dBlockDW(self, num_filters=128, kernel_size=3, stride=2, padding=1),
-            Conv2dBlockDW(self, num_filters=128, kernel_size=3, padding=1),
+        # Create shuffle block
+        for i, cfg_block in enumerate(config):
+            stride, repeat, num_output_channels = cfg_block
 
-            Conv2dBlockDW(self, num_filters=256, kernel_size=3, stride=2, padding=1),
-            Conv2dBlockDW(self, num_filters=256, kernel_size=3, padding=1),
+            # Create shuffle unit
+            for j in range(repeat):
+                downsample = (stride == 2)
+                first_conv = (i == 0 and j == 0)
+                layers += [ShuffleUnit(self, num_output_channels, groups, stride, downsample, first_conv)]
 
-            Conv2dBlockDW(self, num_filters=512, kernel_size=3, stride=2, padding=1),
-            Conv2dBlockDW(self, num_filters=512, kernel_size=3, padding=1),
-            Conv2dBlockDW(self, num_filters=512, kernel_size=3, padding=1),
-            Conv2dBlockDW(self, num_filters=512, kernel_size=3, padding=1),
-            Conv2dBlockDW(self, num_filters=512, kernel_size=3, padding=1),
-            Conv2dBlockDW(self, num_filters=512, kernel_size=3, padding=1),
+        layers += [self.adapt_avgpool2d(output_size=1)]
 
-            Conv2dBlockDW(self, num_filters=1024, kernel_size=3, stride=2, padding=1),
-            Conv2dBlockDW(self, num_filters=1024, kernel_size=3, padding=1),
-
-            self.adapt_avgpool2d(output_size=1)
-        )
-        return layers
+        return nn.Sequential(*layers)
 
     def make_classifier_layers(self):
         """
@@ -84,42 +93,98 @@ class MobileNetV1(MultiClassBaseModel):
         x = self.classifier(x)
         return x
 
-class Conv2dBlockDW(nn.Sequential):
+class ShuffleUnit(nn.Module):
     """
-    Convolution depth-wise block
+    Shuffle Unit
     """
 
-    def __init__(self, network, in_channels=None, num_filters=None, set_output=True, activation=True, **kwargs):
+    def __init__(self, network, num_output_channels, groups, stride, downsample, first_conv):
         """
         Initialize layers
         """
         super().__init__()
 
-        # Convolution Depth-Wise layer
-        self.add_module('conv_dw', network.conv2d_depthwise(in_channels, in_channels, set_output, **kwargs))
+        self.groups = groups
+        self.groups_first_conv1x1 = 1 if first_conv else groups
+        self.downsample = downsample
+        bottleneck_channels = num_output_channels // 4
+        num_channels_identity = network.in_channels
+        if self.downsample:
+            num_output_channels -= num_channels_identity
 
-        # Batch normalization layer
-        if network.setting.batch_norm:
-            if in_channels is None:
-                in_channels = network.in_channels
-            self.add_module('bn_dw', nn.BatchNorm2d(num_features=in_channels))
+        # Group convolution for channel compression before conv3x3
+        self.conv1x1_group_compress = Conv2dBlock(
+            network, 
+            num_filters=bottleneck_channels, 
+            kernel_size=1, 
+            groups=self.groups_first_conv1x1)
 
-        # Activation layer
-        if activation:
-            self.add_module('relu_dw', nn.ReLU())
+        # Convolution 3x3 depth-wise
+        self.conv3x3_depthwise = Conv2dBlock(
+            network, 
+            num_filters=bottleneck_channels, 
+            activation=False, 
+            kernel_size=3, 
+            stride=stride,
+            padding=1, 
+            groups=bottleneck_channels)
 
-        # Convolution Point-Wise layer
-        self.add_module('conv_pw', network.conv2d(in_channels, num_filters, set_output, kernel_size=1))
+        # Group convolution for channel expansion
+        self.conv1x1_group_expand = Conv2dBlock(
+            network,
+            num_filters=num_output_channels,
+            activation=False,
+            kernel_size=1,
+            groups=self.groups)
 
-        # Batch normalization layer
-        if network.setting.batch_norm:
-            self.add_module('bn_pw', nn.BatchNorm2d(num_features=num_filters))
+        # Update number of channels
+        if self.downsample:
+            network.in_channels += num_channels_identity
 
-        # Activation layer
-        if activation:
-            self.add_module('relu_pw', nn.ReLU())
-
+        # Global average pooling and Activation
+        self.avg_pool = network.avgpool2d(set_output=False, kernel_size=3, stride=2, padding=1)
+        self.relu = nn.ReLU(inplace=True)
         return
+
+    def forward(self, x):
+        """
+        Forward propagation
+        """
+        identity = x
+
+        if self.downsample:
+            identity = self.avg_pool(identity)
+
+        output = self.conv1x1_group_compress(x)
+        output = self.channel_shuffle(output)
+        output = self.conv3x3_depthwise(output)
+        output = self.conv1x1_group_expand(output)
+
+        if self.downsample:
+            output = torch.cat([identity, output], dim=1)
+        else:
+            output += identity
+
+        return self.relu(output)
+
+    def channel_shuffle(self, x):
+        """
+        Channel shuffle operation
+            Usage of contiguous function: https://github.com/pytorch/pytorch/issues/764
+        """
+        batch_size, num_channels, height, width = x.data.size()
+        group_channels = num_channels // self.groups
+
+        # Reshape with group channels
+        x = x.view(batch_size, self.groups, group_channels, height, width)
+
+        # Random with transpose
+        x = torch.transpose(x, 1, 2).contiguous()
+
+        # Flatten
+        x = x.view(batch_size, -1, height, width)
+
+        return x
 
 
 def process_eval(model, trainset, validset, testset, tuning=False, results=None):
@@ -155,7 +220,7 @@ def process_fit():
     """
     # Create settings
     setting = Settings(
-        kind='',
+        kind='g3',
         input_size=(3, 32, 32),
         num_classes=10,
         # Batch
@@ -200,7 +265,7 @@ def process_fit():
     validset = data.load_valid()
 
     # Create net
-    model = MobileNetV1(setting)
+    model = ShuffleNetV1(setting)
     setting.device.move(model)
     model.print_summary()
 
@@ -220,17 +285,17 @@ def process_tune():
     # Hyper-parameters search space
     distrib = HyperParamsDistrib(
         # Batch
-        batch_size      = [256],
+        batch_size      = [32],
         batch_norm      = [True],
         # Epoch
         epochs          = [50],
         # Learning rate
-        learning_rate   = list(np.logspace(np.log10(0.001), np.log10(0.09), base=10, num=1000)),
+        learning_rate   = list(np.logspace(np.log10(0.0001), np.log10(0.1), base=10, num=1000)),
         lr_factor       = list(np.logspace(np.log10(0.01), np.log10(1), base=10, num=1000)),
         lr_patience     = [10],
         # Regularization
         weight_decay    = list(np.logspace(np.log10(0.0009), np.log10(0.9), base=10, num=1000)),
-        dropout_rate    = stats.uniform(0.35, 0.75),
+        dropout_rate    = stats.uniform(0.15, 0.75),
         # Metric
         loss_optim      = [False],
         # Data
@@ -249,7 +314,7 @@ def process_tune():
 
     # Create settings
     setting = Settings(
-        kind='',
+        kind='g3',
         input_size=(3, 32, 32),
         num_classes=10,
         distrib=distrib,
@@ -266,7 +331,7 @@ def process_tune():
     validset = data.load_valid()
 
     # Create tuner
-    tuner = Tuner(MobileNetV1, setting)
+    tuner = Tuner(ShuffleNetV1, setting)
 
     # Search for best model in tuning process
     model, results = tuner.process(num_iter=3)
@@ -283,7 +348,7 @@ def process_load(resume_training=False):
     """
     # Create settings
     setting = Settings(
-        kind='',
+        kind='g3',
         input_size=(3, 32, 32),
         num_classes=10,
         num_workers=16,
@@ -294,9 +359,9 @@ def process_load(resume_training=False):
         debug=False)
 
     # Load checkpoint
-    model = MobileNetV1(setting)
+    model = ShuffleNetV1(setting)
     model.setting.device.move(model)
-    states = model.load_checkpoint(path='data/output/MobileNetV1-1600246815-tuned.tar')
+    states = model.load_checkpoint(path='data/output/VGGNet16-1599825440-tuned.tar')
     model.setting.show()
 
     # Load data
@@ -321,6 +386,6 @@ if __name__ == "__main__":
     
     #process_fit()
 
-    #process_tune()
+    process_tune()
 
-    process_load(resume_training=False)
+    #process_load(resume_training=False)

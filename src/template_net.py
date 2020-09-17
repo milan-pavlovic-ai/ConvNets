@@ -135,8 +135,8 @@ def process_fit():
         mixed_precision=True,
         test_sample_size=90,
         seed=21,
-        sanity_check=False,
-        debug=False)
+        sanity_check=True,
+        debug=True)
 
     # Load data
     data = DataMngr(setting)
@@ -164,12 +164,12 @@ def process_tune():
     # Hyper-parameters search space
     distrib = HyperParamsDistrib(
         # Batch
-        batch_size      = [256],
+        batch_size      = [32],
         batch_norm      = [True],
         # Epoch
         epochs          = [50],
         # Learning rate
-        learning_rate   = list(np.logspace(np.log10(0.0001), np.log10(0.01), base=10, num=1000)),
+        learning_rate   = list(np.logspace(np.log10(0.0001), np.log10(0.1), base=10, num=1000)),
         lr_factor       = list(np.logspace(np.log10(0.01), np.log10(1), base=10, num=1000)),
         lr_patience     = [10],
         # Regularization
