@@ -11,14 +11,18 @@ from mngrdata import DataMngr
 from mngrplot import PlotMngr
 from mngrtune import Tuner
 from settings import Settings, HyperParamsDistrib
-from basemodel import MultiClassBaseModel
+from basemodel import MultiClassBaseModel, Conv2dBlock
 
 
-class ResNet(MultiClassBaseModel):
+class SEResNet(MultiClassBaseModel):
     """
-    ResNet - Residual Network
+    SEResNet - Squeeze-and-Excitation Residual Network
+            Implementation of SE block on residual network
 
-    Source: Deep Residual Learning for Image Recognition
+    Source: Squeeze-and-Excitation Networks
+            https://arxiv.org/pdf/1709.01507.pdf
+
+            Deep Residual Learning for Image Recognition
             https://arxiv.org/pdf/1512.03385.pdf
     """
 
@@ -52,9 +56,10 @@ class ResNet(MultiClassBaseModel):
         Create feature layers
         """
         # Configuration
-        block_type_str, config = ResNet.config[str(self.setting.kind)]
-        block_type = ResBottleneck if block_type_str == 'bottleneck' else ResBlock
+        block_type_str, config = SEResNet.config[str(self.setting.kind)]
+        block_type = SEResBottleneck if block_type_str == 'bottleneck' else SEResBlock
         expansion = 4 if block_type_str == 'bottleneck' else 1
+        reduction = 16
 
         # Layers
         layers = []
@@ -68,29 +73,40 @@ class ResNet(MultiClassBaseModel):
             num_filters, num_repeat, stride = cfg_block
             
             # First residual block reduce height and weight with stride
-            layers += [self.residual_block(block_type, num_filters, expansion, stride)]
+            layers += [self.se_residual_block(block_type, num_filters, expansion, reduction, stride)]
 
             # Add rest residual blocks
             for _ in range(1, num_repeat):
-                layers += [self.residual_block(block_type, num_filters, expansion)]
+                layers += [self.se_residual_block(block_type, num_filters, expansion, reduction)]
                 
         # Adaptive Average-Pool
         layers += [self.adapt_avgpool2d(output_size=1)]
 
         return nn.Sequential(*layers)
 
-    def residual_block(self, block_type, num_filters, expansion, stride=1):
+    def se_residual_block(self, block_type, num_filters, expansion, reduction, stride=1):
         """
         Create residual block
         """
         # Dimensions synchronize
         if stride != 1 or self.in_channels != num_filters * expansion:
-            dim_synch = self.conv2d_block(self.in_channels, num_filters * expansion, set_output=False, activation=False, kernel_size=1, stride=stride)
+            dim_synch = self.conv2d_block(
+                self.in_channels, 
+                num_filters * expansion, 
+                set_output=False, 
+                activation=False, 
+                kernel_size=1, 
+                stride=stride)
         else:
             dim_synch = None
         
         # Create a block
-        layers = block_type(self, num_filters=num_filters, expansion=expansion, dim_synch=dim_synch, stride=stride)
+        layers = block_type(self, 
+            num_filters=num_filters, 
+            expansion=expansion, 
+            reduction=reduction,
+            dim_synch=dim_synch, 
+            stride=stride)
         
         return layers
 
@@ -112,20 +128,21 @@ class ResNet(MultiClassBaseModel):
         x = self.classifier(x)
         return x
 
-class ResBlock(nn.Module):
+class SEResBlock(nn.Module):
     """
-    Residual block
+    Squeeze-and-Excitation Residual block
     """
 
-    def __init__(self, network, num_filters, expansion, dim_synch=None, **kwargs):
+    def __init__(self, network, num_filters, expansion, reduction, dim_synch=None, **kwargs):
         """
         Initialize layers
         """
         super().__init__()
         self.dim_synch = dim_synch
         self.res_block = nn.Sequential(
-            network.conv2d_block(num_filters=num_filters, kernel_size=3, padding=1, **kwargs),
-            network.conv2d_block(num_filters=num_filters * expansion, activation=False, kernel_size=3, padding=1)
+            Conv2dBlock(network, num_filters=num_filters, kernel_size=3, padding=1, **kwargs),
+            Conv2dBlock(network, num_filters=num_filters * expansion, activation=False, kernel_size=3, padding=1),
+            SELayer(network, reduction)
         )
         return
 
@@ -151,21 +168,22 @@ class ResBlock(nn.Module):
 
         return output
 
-class ResBottleneck(nn.Module):
+class SEResBottleneck(nn.Module):
     """
-    Residual bottleneck
+    Squeeze-and-Excitation Residual bottleneck
     """
 
-    def __init__(self, network, num_filters, expansion, dim_synch=None, **kwargs):
+    def __init__(self, network, num_filters, expansion, reduction, dim_synch=None, **kwargs):
         """
         Initialize layers
         """
         super().__init__()
         self.dim_synch = dim_synch
         self.res_bottleneck = nn.Sequential(
-            network.conv2d_block(num_filters=num_filters, kernel_size=1, **kwargs),
-            network.conv2d_block(num_filters=num_filters, kernel_size=3, padding=1),
-            network.conv2d_block(num_filters=num_filters * expansion, activation=False, kernel_size=1)
+            Conv2dBlock(network, num_filters=num_filters, kernel_size=1, **kwargs),
+            Conv2dBlock(network, num_filters=num_filters, kernel_size=3, padding=1),
+            Conv2dBlock(network, num_filters=num_filters * expansion, activation=False, kernel_size=1),
+            SELayer(network, reduction)
         )
         return
 
@@ -188,6 +206,47 @@ class ResBottleneck(nn.Module):
 
         # Activation
         output = F.relu(output)
+
+        return output
+
+class SELayer(nn.Sequential):
+    """
+    Squeeze-and-Excitation layer
+        After this layer the size of tensor is the same as before
+    """
+
+    def __init__(self, network, reduction, **kwargs):
+        """
+        Initialize layers
+        """
+        super().__init__()
+        num_features = network.in_channels
+        num_features_reduct = num_features // reduction
+
+        self.squeeze = network.adapt_avgpool2d(set_output=False, output_size=1)
+
+        self.excitation = nn.Sequential(
+            nn.Linear(num_features, num_features_reduct, bias=False),
+            nn.ReLU(inplace=True),
+            nn.Linear(num_features_reduct, num_features, bias=False),
+            nn.Sigmoid()
+        )
+        return
+
+    def forward(self, x):
+        """
+        Forward propagation
+        """
+        batch_size, num_channels, _, _ = x.size()
+        
+        # Squeeze
+        output = self.squeeze(x).view(batch_size, num_channels)
+        
+        # Exicitation
+        output = self.excitation(output).view(batch_size, num_channels, 1, 1)
+        
+        # Scale
+        output = x * output.expand_as(x)
 
         return output
 
@@ -270,7 +329,7 @@ def process_fit():
     validset = data.load_valid()
 
     # Create net
-    model = ResNet(setting)
+    model = SEResNet(setting)
     setting.device.move(model)
     model.print_summary()
 
@@ -290,7 +349,7 @@ def process_tune():
     # Hyper-parameters search space
     distrib = HyperParamsDistrib(
         # Batch
-        batch_size      = [256],
+        batch_size      = [64],
         batch_norm      = [True],
         # Epoch
         epochs          = [3],
@@ -331,7 +390,7 @@ def process_tune():
         debug=False)
 
     # Create tuner
-    tuner = Tuner(ResNet, setting)
+    tuner = Tuner(SEResNet, setting)
 
     # Search for best model in tuning process
     model, results = tuner.process(num_iter=3)
@@ -365,7 +424,7 @@ def process_load(resume_training=False):
         debug=False)
 
     # Load checkpoint
-    model = ResNet(setting)
+    model = SEResNet(setting)
     model.setting.device.move(model)
     states = model.load_checkpoint(path='data/output/ResNet101-1600028289-tuned.tar', strict=False)
     model.setting.show()
@@ -390,8 +449,8 @@ def process_load(resume_training=False):
 
 if __name__ == "__main__":
     
-    #process_fit()
+    process_fit()
 
     #process_tune()
 
-    process_load(resume_training=False)
+    #process_load(resume_training=False)

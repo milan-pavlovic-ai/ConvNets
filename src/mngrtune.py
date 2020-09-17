@@ -117,7 +117,7 @@ class Tuner:
         model.update_checkpoint(best_checkpoint, path=self.best_model_path)
         
         # Best model information
-        print('Model with best score of {} is achieved with setting:\n'.format(best_score))
+        print('Model with best score of {:.3f} is achieved with setting:\n'.format(best_score))
         model.setting.show()
 
         return model, self.results
