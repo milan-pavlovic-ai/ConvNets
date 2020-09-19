@@ -19,7 +19,7 @@ class SKResNet(MultiClassBaseModel):
     SKResNet - Selective Kernel Residual Networks
         Implementation of SK block on residual bottleneck network
         Modifications
-            - Added dropout layer in classifier (similar like in DenseNet)
+            - Added dropout layer after global average pooling
 
     Source: Selective Kernel Networks
             https://arxiv.org/pdf/1903.06586.pdf
@@ -217,13 +217,12 @@ class SKConv(nn.Module):
         """
         Forward propagation
         """
-        batch_size, num_channels, height, width = x.size()
-
         # Split: Create a feature map for each kernel
         feature_maps = [group_conv(x) for group_conv in self.kernels]
 
         # Fuse: Concatenate and sum feature maps element-wise
         feature_maps = torch.cat(feature_maps, dim=1)
+        batch_size, num_channels, height, width = feature_maps.size()
         feature_maps = feature_maps.view(batch_size, self.num_paths, self.num_features, height, width)
         
         features = torch.sum(feature_maps, dim=1)
@@ -339,24 +338,25 @@ def process_tune():
     # Hyper-parameters search space
     distrib = HyperParamsDistrib(
         # Batch
-        batch_size      = [64],
+        batch_size      = [256],
         batch_norm      = [True],
         # Epoch
-        epochs          = [3],
+        epochs          = [150],
         # Learning rate
         learning_rate   = list(np.logspace(np.log10(0.0001), np.log10(0.01), base=10, num=1000)),
-        lr_factor       = list(np.logspace(np.log10(0.01), np.log10(1), base=10, num=1000)),
+        lr_factor       = list(np.logspace(np.log10(0.01), np.log10(0.5), base=10, num=1000)),
         lr_patience     = [10],
         # Regularization
-        weight_decay    = list(np.logspace(np.log10(0.0009), np.log10(0.9), base=10, num=1000)),
-        dropout_rate    = stats.uniform(0.3, 0.65),
+        weight_decay    = list(np.logspace(np.log10(0.009), np.log10(0.9), base=10, num=1000)),
+        dropout_rate    = stats.uniform(0.5, 0.45),
         # Metric
         loss_optim      = [False],
         # Data
-        data_augment    = [False],
+        data_augment    = [True],
+        data_norm       = [True],
         # Early stopping
         early_stop      = [True],
-        es_patience     = [12],
+        es_patience     = [15],
         # Gradient clipping
         grad_clip_norm  = [False],
         gc_max_norm     = [1],
@@ -365,6 +365,7 @@ def process_tune():
         # Initialization
         init_params     = [True]
     )
+
 
     # Create settings
     setting = Settings(
@@ -396,7 +397,7 @@ def process_tune():
     
     return
 
-def process_load(resume_training=False):
+def process_load(path, resume=False):
     """
     Process loading and resume training
     """
@@ -416,7 +417,7 @@ def process_load(resume_training=False):
     # Load checkpoint
     model = SKResNet(setting)
     model.setting.device.move(model)
-    states = model.load_checkpoint(path='data/output/ResNet101-1600028289-tuned.tar', strict=False)
+    states = model.load_checkpoint(path=path)
     model.setting.show()
 
     # Load data
@@ -425,10 +426,10 @@ def process_load(resume_training=False):
     validset = data.load_valid()
 
     # Resume training
-    if resume_training:
+    if resume:
         model.setting.epochs = 2
         model.setting.show()
-        model.fit(trainset, validset, resume=True)
+        model.fit(trainset, validset, resume=resume)
 
     # Evaluate model
     testset = data.load_test()
@@ -439,8 +440,8 @@ def process_load(resume_training=False):
 
 if __name__ == "__main__":
     
-    process_fit()
+    #process_fit()
 
-    #process_tune()
+    process_tune()
 
-    #process_load(resume_training=False)
+    #process_load(path='data/output/VGGNet16-1600525028-tuned.tar', resume=False)

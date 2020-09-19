@@ -33,6 +33,7 @@ class SEResNet(MultiClassBaseModel):
     config = {
         '18': ('basic', [(64, 2, 1), (128, 2, 2), (256, 2, 2), (512, 2, 2)]), 
         '34': ('basic', [(64, 3, 1), (128, 4, 2), (256, 6, 2), (512, 3, 2)]),
+        '26': ('bottleneck', [(64, 2, 1), (128, 2, 2), (256, 2, 2), (512, 2, 2)]),
         '50': ('bottleneck', [(64, 3, 1), (128, 4, 2), (256, 6, 2), (512, 3, 2)]),
         '101': ('bottleneck', [(64, 3, 1), (128, 4, 2), (256, 23, 2), (512, 3, 2)]),
         '152': ('bottleneck', [(64, 3, 1), (128, 8, 2), (256, 36, 2), (512, 3, 2)])
@@ -349,15 +350,15 @@ def process_tune():
     """
     Process the procedure of tuning model
     """
-    # Hyper-parameters search space
+        # Hyper-parameters search space
     distrib = HyperParamsDistrib(
         # Batch
         batch_size      = [256],
         batch_norm      = [True],
         # Epoch
-        epochs          = [300],
+        epochs          = [150],
         # Learning rate
-        learning_rate   = list(np.logspace(np.log10(0.0005), np.log10(0.01), base=10, num=1000)),
+        learning_rate   = list(np.logspace(np.log10(0.0001), np.log10(0.01), base=10, num=1000)),
         lr_factor       = list(np.logspace(np.log10(0.01), np.log10(0.5), base=10, num=1000)),
         lr_patience     = [10],
         # Regularization
@@ -366,7 +367,8 @@ def process_tune():
         # Metric
         loss_optim      = [False],
         # Data
-        data_augment    = [False],
+        data_augment    = [True],
+        data_norm       = [True],
         # Early stopping
         early_stop      = [True],
         es_patience     = [15],
@@ -379,9 +381,10 @@ def process_tune():
         init_params     = [True]
     )
 
+
     # Create settings
     setting = Settings(
-        kind=50,
+        kind=26,
         input_size=(3, 32, 32),
         num_classes=10,
         distrib=distrib,
@@ -458,4 +461,4 @@ if __name__ == "__main__":
 
     process_tune()
 
-    #process_load(path='data/output/VGGNet16-1600525028-tuned.tar', resume=False)
+    #process_load(path='data/output/SEResNet18-1600516991-tuned.tar', resume=False)
