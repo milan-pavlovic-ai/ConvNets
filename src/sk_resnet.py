@@ -14,15 +14,15 @@ from settings import Settings, HyperParamsDistrib
 from basemodel import MultiClassBaseModel, Conv2dBlock
 
 
-class SEResNet(MultiClassBaseModel):
+class SKResNet(MultiClassBaseModel):
     """
-    SEResNet - Squeeze-and-Excitation Residual Network
-        Implementation of SE block on residual network
+    SKResNet - Selective Kernel Residual Networks
+        Implementation of SK block on residual bottleneck network
         Modifications
-            - Added dropout layer after global average pooling
+            - Added dropout layer in classifier (similar like in DenseNet)
 
-    Source: Squeeze-and-Excitation Networks
-            https://arxiv.org/pdf/1709.01507.pdf
+    Source: Selective Kernel Networks
+            https://arxiv.org/pdf/1903.06586.pdf
 
             Deep Residual Learning for Image Recognition
             https://arxiv.org/pdf/1512.03385.pdf
@@ -31,11 +31,10 @@ class SEResNet(MultiClassBaseModel):
     # Configuration for each residual block
     #   in format (num_filters, num_res_blocks, stride_for_first_conv2d_in_res_block)
     config = {
-        '18': ('basic', [(64, 2, 1), (128, 2, 2), (256, 2, 2), (512, 2, 2)]), 
-        '34': ('basic', [(64, 3, 1), (128, 4, 2), (256, 6, 2), (512, 3, 2)]),
-        '50': ('bottleneck', [(64, 3, 1), (128, 4, 2), (256, 6, 2), (512, 3, 2)]),
-        '101': ('bottleneck', [(64, 3, 1), (128, 4, 2), (256, 23, 2), (512, 3, 2)]),
-        '152': ('bottleneck', [(64, 3, 1), (128, 8, 2), (256, 36, 2), (512, 3, 2)])
+        '26': [(64, 2, 1), (128, 2, 2), (256, 2, 2), (512, 2, 2)],
+        '50': [(64, 3, 1), (128, 4, 2), (256, 6, 2), (512, 3, 2)],
+        '101': [(64, 3, 1), (128, 4, 2), (256, 23, 2), (512, 3, 2)],
+        '152': [(64, 3, 1), (128, 8, 2), (256, 36, 2), (512, 3, 2)]
     }
 
     def __init__(self, setting):
@@ -58,10 +57,9 @@ class SEResNet(MultiClassBaseModel):
         Create feature layers
         """
         # Configuration
-        block_type_str, config = SEResNet.config[str(self.setting.kind)]
-        block_type = SEResBottleneck if block_type_str == 'bottleneck' else SEResBlock
-        expansion = 4 if block_type_str == 'bottleneck' else 1
-        reduction = 16
+        config = SKResNet.config[str(self.setting.kind)]
+        block_type = SKResBottleneck
+        expansion = 4
 
         # Layers
         layers = []
@@ -75,18 +73,18 @@ class SEResNet(MultiClassBaseModel):
             num_filters, num_repeat, stride = cfg_block
             
             # First residual block reduce height and weight with stride
-            layers += [self.se_residual_block(block_type, num_filters, expansion, reduction, stride)]
+            layers += [self.sk_residual_block(block_type, num_filters, expansion, stride)]
 
             # Add rest residual blocks
             for _ in range(1, num_repeat):
-                layers += [self.se_residual_block(block_type, num_filters, expansion, reduction)]
+                layers += [self.sk_residual_block(block_type, num_filters, expansion)]
                 
         # Adaptive Average-Pool
         layers += [self.adapt_avgpool2d(output_size=1)]
 
         return nn.Sequential(*layers)
 
-    def se_residual_block(self, block_type, num_filters, expansion, reduction, stride=1):
+    def sk_residual_block(self, block_type, num_filters, expansion, stride=1):
         """
         Create residual block
         """
@@ -105,8 +103,7 @@ class SEResNet(MultiClassBaseModel):
         # Create a block
         layers = block_type(self, 
             num_filters=num_filters, 
-            expansion=expansion, 
-            reduction=reduction,
+            expansion=expansion,
             dim_synch=dim_synch, 
             stride=stride)
         
@@ -131,52 +128,12 @@ class SEResNet(MultiClassBaseModel):
         x = self.classifier(x)
         return x
 
-class SEResBlock(nn.Module):
+class SKResBottleneck(nn.Module):
     """
-    Squeeze-and-Excitation Residual block
-    """
-
-    def __init__(self, network, num_filters, expansion, reduction, dim_synch=None, **kwargs):
-        """
-        Initialize layers
-        """
-        super().__init__()
-        self.dim_synch = dim_synch
-        self.res_block = nn.Sequential(
-            Conv2dBlock(network, num_filters=num_filters, kernel_size=3, padding=1, **kwargs),
-            Conv2dBlock(network, num_filters=num_filters * expansion, activation=False, kernel_size=3, padding=1),
-            SEUnit(network, reduction)
-        )
-        return
-
-    def forward(self, x):
-        """
-        Forward propagation
-        """
-        # Save previous state
-        identity = x
-        
-        # Calculate block
-        output = self.res_block(x)
-
-        # Dimension synchronization
-        if self.dim_synch is not None:
-            identity = self.dim_synch(identity) 
-
-        # Add shortcut / skip-connection
-        output += identity
-
-        # Activation
-        output = F.relu(output)
-
-        return output
-
-class SEResBottleneck(nn.Module):
-    """
-    Squeeze-and-Excitation Residual bottleneck
+    Selective Kernel Residual bottleneck
     """
 
-    def __init__(self, network, num_filters, expansion, reduction, dim_synch=None, **kwargs):
+    def __init__(self, network, num_filters, expansion, dim_synch=None, **kwargs):
         """
         Initialize layers
         """
@@ -184,9 +141,8 @@ class SEResBottleneck(nn.Module):
         self.dim_synch = dim_synch
         self.res_bottleneck = nn.Sequential(
             Conv2dBlock(network, num_filters=num_filters, kernel_size=1),
-            Conv2dBlock(network, num_filters=num_filters, kernel_size=3, padding=1, **kwargs),
-            Conv2dBlock(network, num_filters=num_filters * expansion, activation=False, kernel_size=1),
-            SEUnit(network, reduction)
+            SKConv(network, **kwargs),
+            Conv2dBlock(network, num_filters=num_filters * expansion, activation=False, kernel_size=1)
         )
         return
 
@@ -212,44 +168,75 @@ class SEResBottleneck(nn.Module):
 
         return output
 
-class SEUnit(nn.Module):
+class SKConv(nn.Module):
     """
-    Squeeze-and-Excitation unit
-        After this unit the size of tensor is the same as before
+    Selective Kernel convolution
+        After this operation the size of tensor is the same as before
     """
 
-    def __init__(self, network, reduction, **kwargs):
+    def __init__(self, network, num_paths=2, groups=32, reduction=16, min_descriptor=32, **kwargs):
         """
         Initialize layers
         """
         super().__init__()
-        num_features = network.in_channels
-        num_features_reduct = num_features // reduction
+        self.num_paths = num_paths
+        self.num_features = network.in_channels
+        self.kernels = nn.ModuleList([])
+        self.attentions = nn.ModuleList([])
+        descriptor_size = max(network.in_channels // reduction, min_descriptor)
 
-        self.squeeze = network.adapt_avgpool2d(set_output=False, output_size=1)
+        for i in range(num_paths):
+            # Splits, list of different kernel operations
+            self.kernels += [Conv2dBlock(
+                network, 
+                num_filters=network.in_channels,
+                set_output=False,
+                kernel_size=3,
+                padding=1+i,
+                dilation=1+i,
+                groups=groups,
+                **kwargs
+            )]
+            # Attentions, one attention for each kernel operation
+            self.attentions += [nn.Sequential(
+                nn.Conv2d(descriptor_size, network.in_channels, kernel_size=1)
+            )]
 
-        self.excitation = nn.Sequential(
-            nn.Linear(num_features, num_features_reduct, bias=False),
-            nn.ReLU(inplace=True),
-            nn.Linear(num_features_reduct, num_features, bias=False),
-            nn.Sigmoid()
-        )
+        # Squeeze
+        self.global_avgpool = network.adapt_avgpool2d(set_output=False, output_size=1)
+
+        # Feature descriptor
+        self.descriptor = Conv2dBlock(network, num_filters=descriptor_size, set_output=False, kernel_size=1)
+
+        # Soft attention across channels is used to adap-tively select different spatial scales of information
+        self.softmax = nn.Softmax(dim=1)
+
         return
 
     def forward(self, x):
         """
         Forward propagation
         """
-        batch_size, num_channels, _, _ = x.size()
+        batch_size, num_channels, height, width = x.size()
+
+        # Split: Create a feature map for each kernel
+        feature_maps = [group_conv(x) for group_conv in self.kernels]
+
+        # Fuse: Concatenate and sum feature maps element-wise
+        feature_maps = torch.cat(feature_maps, dim=1)
+        feature_maps = feature_maps.view(batch_size, self.num_paths, self.num_features, height, width)
         
-        # Squeeze
-        output = self.squeeze(x).view(batch_size, num_channels)
-        
-        # Exicitation
-        output = self.excitation(output).view(batch_size, num_channels, 1, 1)
-        
-        # Scale
-        output = x * output.expand_as(x)
+        features = torch.sum(feature_maps, dim=1)
+        features = self.global_avgpool(features)
+        features = self.descriptor(features)
+
+        # Select: Create soft attention vectors for selection
+        attentions = [attention(features) for attention in self.attentions]
+        attentions = torch.cat(attentions, dim=1)
+        attentions = attentions.view(batch_size, self.num_paths, self.num_features, 1, 1)
+        soft_attentions = self.softmax(attentions)
+
+        output = torch.sum(feature_maps * soft_attentions, dim=1)
 
         return output
 
@@ -301,7 +288,7 @@ def process_fit():
         lr_patience=10,
         # Regularization
         weight_decay=1E-5,
-        dropout_rate=0,
+        dropout_rate=0.5,
         # Metric
         loss_optim=False,
         # Data
@@ -324,7 +311,7 @@ def process_fit():
         test_sample_size=90,
         seed=21,
         sanity_check=True,
-        debug=False)
+        debug=True)
 
     # Load data
     data = DataMngr(setting)
@@ -332,7 +319,7 @@ def process_fit():
     validset = data.load_valid()
 
     # Create net
-    model = SEResNet(setting)
+    model = SKResNet(setting)
     setting.device.move(model)
     model.print_summary(additional=False)
 
@@ -352,24 +339,24 @@ def process_tune():
     # Hyper-parameters search space
     distrib = HyperParamsDistrib(
         # Batch
-        batch_size      = [256],
+        batch_size      = [64],
         batch_norm      = [True],
         # Epoch
-        epochs          = [300],
+        epochs          = [3],
         # Learning rate
-        learning_rate   = list(np.logspace(np.log10(0.0005), np.log10(0.01), base=10, num=1000)),
-        lr_factor       = list(np.logspace(np.log10(0.01), np.log10(0.5), base=10, num=1000)),
+        learning_rate   = list(np.logspace(np.log10(0.0001), np.log10(0.01), base=10, num=1000)),
+        lr_factor       = list(np.logspace(np.log10(0.01), np.log10(1), base=10, num=1000)),
         lr_patience     = [10],
         # Regularization
-        weight_decay    = list(np.logspace(np.log10(0.009), np.log10(0.9), base=10, num=1000)),
-        dropout_rate    = stats.uniform(0.5, 0.45),
+        weight_decay    = list(np.logspace(np.log10(0.0009), np.log10(0.9), base=10, num=1000)),
+        dropout_rate    = stats.uniform(0.3, 0.65),
         # Metric
         loss_optim      = [False],
         # Data
         data_augment    = [False],
         # Early stopping
         early_stop      = [True],
-        es_patience     = [15],
+        es_patience     = [12],
         # Gradient clipping
         grad_clip_norm  = [False],
         gc_max_norm     = [1],
@@ -381,7 +368,7 @@ def process_tune():
 
     # Create settings
     setting = Settings(
-        kind=50,
+        kind=101,
         input_size=(3, 32, 32),
         num_classes=10,
         distrib=distrib,
@@ -393,7 +380,7 @@ def process_tune():
         debug=False)
 
     # Create tuner
-    tuner = Tuner(SEResNet, setting)
+    tuner = Tuner(SKResNet, setting)
 
     # Search for best model in tuning process
     model, results = tuner.process(num_iter=3)
@@ -409,13 +396,13 @@ def process_tune():
     
     return
 
-def process_load(path, resume=False):
+def process_load(resume_training=False):
     """
     Process loading and resume training
     """
     # Create settings
     setting = Settings(
-        kind=50,
+        kind=101,
         input_size=(3, 32, 32),
         num_classes=10,
         batch_size=256,
@@ -427,9 +414,9 @@ def process_load(path, resume=False):
         debug=False)
 
     # Load checkpoint
-    model = SEResNet(setting)
+    model = SKResNet(setting)
     model.setting.device.move(model)
-    states = model.load_checkpoint(path=path)
+    states = model.load_checkpoint(path='data/output/ResNet101-1600028289-tuned.tar', strict=False)
     model.setting.show()
 
     # Load data
@@ -438,12 +425,10 @@ def process_load(path, resume=False):
     validset = data.load_valid()
 
     # Resume training
-    if resume:
-        model.setting.epochs = 150
-        model.setting.learning_rate = 0.000064
-        model.update_learning_rate()
+    if resume_training:
+        model.setting.epochs = 2
         model.setting.show()
-        model.fit(trainset, validset, resume=resume)
+        model.fit(trainset, validset, resume=True)
 
     # Evaluate model
     testset = data.load_test()
@@ -454,8 +439,8 @@ def process_load(path, resume=False):
 
 if __name__ == "__main__":
     
-    #process_fit()
+    process_fit()
 
-    process_tune()
+    #process_tune()
 
-    #process_load(path='data/output/VGGNet16-1600525028-tuned.tar', resume=False)
+    #process_load(resume_training=False)

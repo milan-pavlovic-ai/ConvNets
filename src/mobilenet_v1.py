@@ -17,6 +17,8 @@ from basemodel import MultiClassBaseModel, Conv2dBlock
 class MobileNetV1(MultiClassBaseModel):
     """
     MobileNet - Mobile network
+        Modifications
+            - Added dropout layer after global average pooling
 
     Source: MobileNets: Efficient Convolutional Neural Networks for Mobile VisionApplications
             https://arxiv.org/pdf/1704.04861.pdf
@@ -71,6 +73,7 @@ class MobileNetV1(MultiClassBaseModel):
         Create classifier layers
         """
         layers = nn.Sequential(
+            nn.Dropout(p=self.setting.dropout_rate),
             nn.Linear(self.num_flat_features(), self.setting.num_classes)
         )
         return layers
@@ -202,7 +205,7 @@ def process_fit():
     # Create net
     model = MobileNetV1(setting)
     setting.device.move(model)
-    model.print_summary()
+    model.print_summary(additional=False)
 
     # Train model
     model.fit(trainset, validset)
@@ -223,21 +226,22 @@ def process_tune():
         batch_size      = [256],
         batch_norm      = [True],
         # Epoch
-        epochs          = [50],
+        epochs          = [150],
         # Learning rate
-        learning_rate   = list(np.logspace(np.log10(0.001), np.log10(0.09), base=10, num=1000)),
-        lr_factor       = list(np.logspace(np.log10(0.01), np.log10(1), base=10, num=1000)),
+        learning_rate   = list(np.logspace(np.log10(0.0001), np.log10(0.01), base=10, num=1000)),
+        lr_factor       = list(np.logspace(np.log10(0.01), np.log10(0.5), base=10, num=1000)),
         lr_patience     = [10],
         # Regularization
-        weight_decay    = list(np.logspace(np.log10(0.0009), np.log10(0.9), base=10, num=1000)),
-        dropout_rate    = stats.uniform(0.35, 0.75),
+        weight_decay    = list(np.logspace(np.log10(0.009), np.log10(0.9), base=10, num=1000)),
+        dropout_rate    = stats.uniform(0.5, 0.45),
         # Metric
         loss_optim      = [False],
         # Data
-        data_augment    = [False],
+        data_augment    = [True],
+        data_norm       = [True],
         # Early stopping
         early_stop      = [True],
-        es_patience     = [12],
+        es_patience     = [15],
         # Gradient clipping
         grad_clip_norm  = [False],
         gc_max_norm     = [1],
@@ -277,7 +281,7 @@ def process_tune():
     
     return
 
-def process_load(resume_training=False):
+def process_load(path, resume=False):
     """
     Process loading and resume training
     """
@@ -296,7 +300,7 @@ def process_load(resume_training=False):
     # Load checkpoint
     model = MobileNetV1(setting)
     model.setting.device.move(model)
-    states = model.load_checkpoint(path='data/output/MobileNetV1-1600246815-tuned.tar')
+    states = model.load_checkpoint(path=path)
     model.setting.show()
 
     # Load data
@@ -305,10 +309,10 @@ def process_load(resume_training=False):
     validset = data.load_valid()
 
     # Resume training
-    if resume_training:
+    if resume:
         model.setting.epochs = 2
         model.setting.show()
-        model.fit(trainset, validset, resume=True)
+        model.fit(trainset, validset, resume=resume)
 
     # Evaluate model
     testset = data.load_test()
@@ -321,6 +325,6 @@ if __name__ == "__main__":
     
     #process_fit()
 
-    #process_tune()
+    process_tune()
 
-    process_load(resume_training=False)
+    # process_load(path='data/output/VGGNet16-1600525028-tuned.tar', resume=False)

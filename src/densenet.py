@@ -18,6 +18,9 @@ class DenseNet(MultiClassBaseModel):
     """
     DenseNet - Densely Connected Convolutional Networks 
             Effective implementation with bottleneck layers and compression
+            Modifications
+                Move dropout layer before convolution layer according to https://arxiv.org/pdf/1904.03392.pdf
+                Added dropout layer after global average pooling
 
     Source: Densely Connected Convolutional Networks
             https://arxiv.org/pdf/1608.06993.pdf
@@ -85,6 +88,7 @@ class DenseNet(MultiClassBaseModel):
         Create classifier layers
         """
         layers = nn.Sequential(
+            nn.Dropout(p=self.setting.dropout_rate),
             nn.Linear(self.num_flat_features(), self.setting.num_classes)
         )
         return layers
@@ -112,16 +116,16 @@ class DenseLayer(nn.Module):
         self.bottleneck = nn.Sequential(
             nn.BatchNorm2d(network.in_channels),
             nn.ReLU(inplace=True),
+            nn.Dropout(p=network.setting.dropout_rate),
             network.conv2d(num_filters=bottleneck_factor * growth_rate, kernel_size=1)
         )
 
         self.conv_block = nn.Sequential(
             nn.BatchNorm2d(network.in_channels),
             nn.ReLU(inplace=True),
+            nn.Dropout(p=network.setting.dropout_rate),
             network.conv2d(num_filters=growth_rate, kernel_size=3, padding=1)
         )
-
-        self.dropout = nn.Dropout(p=network.setting.dropout_rate)
         return
 
     def forward(self, x):
@@ -131,9 +135,6 @@ class DenseLayer(nn.Module):
         # Bottleneck layer
         output = self.bottleneck(x)
         output = self.conv_block(output)
-
-        # Dropout
-        output = self.dropout(output)
 
         # Stack input and output, this will be input for next layer
         return torch.cat([x, output], dim=1)
@@ -221,7 +222,7 @@ def process_fit():
     """
     # Create settings
     setting = Settings(
-        kind='201',
+        kind='121',
         input_size=(3, 32, 32),
         num_classes=10,
         # Batch
@@ -286,21 +287,22 @@ def process_tune():
     # Hyper-parameters search space
     distrib = HyperParamsDistrib(
         # Batch
-        batch_size      = [64],
+        batch_size      = [256],
         batch_norm      = [True],
         # Epoch
-        epochs          = [100],
+        epochs          = [150],
         # Learning rate
-        learning_rate   = list(np.logspace(np.log10(0.0001), np.log10(0.1), base=10, num=1000)),
-        lr_factor       = list(np.logspace(np.log10(0.01), np.log10(1), base=10, num=1000)),
+        learning_rate   = list(np.logspace(np.log10(0.0001), np.log10(0.01), base=10, num=1000)),
+        lr_factor       = list(np.logspace(np.log10(0.01), np.log10(0.5), base=10, num=1000)),
         lr_patience     = [10],
         # Regularization
-        weight_decay    = list(np.logspace(np.log10(0.0009), np.log10(0.9), base=10, num=1000)),
-        dropout_rate    = stats.uniform(0.35, 0.75),
+        weight_decay    = list(np.logspace(np.log10(0.009), np.log10(0.9), base=10, num=1000)),
+        dropout_rate    = stats.uniform(0.5, 0.45),
         # Metric
         loss_optim      = [False],
         # Data
-        data_augment    = [False],
+        data_augment    = [True],
+        data_norm       = [True],
         # Early stopping
         early_stop      = [True],
         es_patience     = [15],
@@ -315,7 +317,7 @@ def process_tune():
 
     # Create settings
     setting = Settings(
-        kind='169',
+        kind='121',
         input_size=(3, 32, 32),
         num_classes=10,
         distrib=distrib,
@@ -343,7 +345,7 @@ def process_tune():
     
     return
 
-def process_load(resume_training=False):
+def process_load(path, resume=False):
     """
     Process loading and resume training
     """
@@ -362,7 +364,7 @@ def process_load(resume_training=False):
     # Load checkpoint
     model = DenseNet(setting)
     model.setting.device.move(model)
-    states = model.load_checkpoint(path='data/output/DenseNet169-1600211059-tuned.tar')
+    states = model.load_checkpoint(path=path)
     model.setting.show()
 
     # Load data
@@ -371,10 +373,10 @@ def process_load(resume_training=False):
     validset = data.load_valid()
 
     # Resume training
-    if resume_training:
+    if resume:
         model.setting.epochs = 2
         model.setting.show()
-        model.fit(trainset, validset, resume=True)
+        model.fit(trainset, validset, resume=resume)
 
     # Evaluate model
     testset = data.load_test()
@@ -389,4 +391,4 @@ if __name__ == "__main__":
 
     process_tune()
 
-    #process_load(resume_training=False)
+    #process_load(path='data/output/VGGNet16-1600525028-tuned.tar', resume=False)

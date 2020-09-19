@@ -17,6 +17,8 @@ from basemodel import MultiClassBaseModel
 class ResNet(MultiClassBaseModel):
     """
     ResNet - Residual Network
+        Modifications
+            - Added dropout layer after global average pooling
 
     Source: Deep Residual Learning for Image Recognition
             https://arxiv.org/pdf/1512.03385.pdf
@@ -99,6 +101,7 @@ class ResNet(MultiClassBaseModel):
         Create classifier layers
         """
         layers = nn.Sequential(
+            nn.Dropout(p=self.setting.dropout_rate),
             nn.Linear(self.num_flat_features(), self.setting.num_classes)
         )
         return layers
@@ -163,8 +166,8 @@ class ResBottleneck(nn.Module):
         super().__init__()
         self.dim_synch = dim_synch
         self.res_bottleneck = nn.Sequential(
-            network.conv2d_block(num_filters=num_filters, kernel_size=1, **kwargs),
-            network.conv2d_block(num_filters=num_filters, kernel_size=3, padding=1),
+            network.conv2d_block(num_filters=num_filters, kernel_size=1),
+            network.conv2d_block(num_filters=num_filters, kernel_size=3, padding=1, **kwargs),
             network.conv2d_block(num_filters=num_filters * expansion, activation=False, kernel_size=1)
         )
         return
@@ -225,7 +228,7 @@ def process_fit():
     """
     # Create settings
     setting = Settings(
-        kind=101,
+        kind=50,
         input_size=(3, 32, 32),
         num_classes=10,
         # Batch
@@ -261,8 +264,8 @@ def process_fit():
         mixed_precision=True,
         test_sample_size=90,
         seed=21,
-        sanity_check=True,
-        debug=True)
+        sanity_check=False,
+        debug=False)
 
     # Load data
     data = DataMngr(setting)
@@ -272,7 +275,7 @@ def process_fit():
     # Create net
     model = ResNet(setting)
     setting.device.move(model)
-    model.print_summary()
+    model.print_summary(additional=False)
 
     # Train model
     model.fit(trainset, validset)
@@ -293,21 +296,22 @@ def process_tune():
         batch_size      = [256],
         batch_norm      = [True],
         # Epoch
-        epochs          = [3],
+        epochs          = [150],
         # Learning rate
         learning_rate   = list(np.logspace(np.log10(0.0001), np.log10(0.01), base=10, num=1000)),
-        lr_factor       = list(np.logspace(np.log10(0.01), np.log10(1), base=10, num=1000)),
+        lr_factor       = list(np.logspace(np.log10(0.01), np.log10(0.5), base=10, num=1000)),
         lr_patience     = [10],
         # Regularization
-        weight_decay    = list(np.logspace(np.log10(0.0009), np.log10(0.9), base=10, num=1000)),
-        dropout_rate    = stats.uniform(0.3, 0.65),
+        weight_decay    = list(np.logspace(np.log10(0.009), np.log10(0.9), base=10, num=1000)),
+        dropout_rate    = stats.uniform(0.5, 0.45),
         # Metric
         loss_optim      = [False],
         # Data
-        data_augment    = [False],
+        data_augment    = [True],
+        data_norm       = [True],
         # Early stopping
         early_stop      = [True],
-        es_patience     = [12],
+        es_patience     = [15],
         # Gradient clipping
         grad_clip_norm  = [False],
         gc_max_norm     = [1],
@@ -319,7 +323,7 @@ def process_tune():
 
     # Create settings
     setting = Settings(
-        kind=101,
+        kind=50,
         input_size=(3, 32, 32),
         num_classes=10,
         distrib=distrib,
@@ -347,7 +351,7 @@ def process_tune():
     
     return
 
-def process_load(resume_training=False):
+def process_load(path, resume=False):
     """
     Process loading and resume training
     """
@@ -367,7 +371,7 @@ def process_load(resume_training=False):
     # Load checkpoint
     model = ResNet(setting)
     model.setting.device.move(model)
-    states = model.load_checkpoint(path='data/output/ResNet101-1600028289-tuned.tar', strict=False)
+    states = model.load_checkpoint(path=path)
     model.setting.show()
 
     # Load data
@@ -376,10 +380,10 @@ def process_load(resume_training=False):
     validset = data.load_valid()
 
     # Resume training
-    if resume_training:
+    if resume:
         model.setting.epochs = 2
         model.setting.show()
-        model.fit(trainset, validset, resume=True)
+        model.fit(trainset, validset, resume=resume)
 
     # Evaluate model
     testset = data.load_test()
@@ -392,6 +396,6 @@ if __name__ == "__main__":
     
     #process_fit()
 
-    #process_tune()
+    process_tune()
 
-    process_load(resume_training=False)
+    #process_load(path='data/output/VGGNet16-1600525028-tuned.tar', resume=False)

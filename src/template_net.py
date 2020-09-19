@@ -113,7 +113,7 @@ def process_fit():
         lr_patience=10,
         # Regularization
         weight_decay=1E-5,
-        dropout_rate=0.5,
+        dropout_rate=0,
         # Metric
         loss_optim=False,
         # Data

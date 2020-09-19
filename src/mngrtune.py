@@ -51,9 +51,11 @@ class Tuner:
         self.results = {'hparams':[], 'scores':[], 'best_model_index':0}
 
         # Load, split and transform data once if batch size is fixed
-        fixed_batch_size = len(self.setting.distrib.batch_size) == 1
+        fixed_batch_size = len(self.setting.distrib.batch_size) == 1 and len(self.setting.distrib.data_augment) == 1 and len(self.setting.distrib.data_norm) == 1
         if fixed_batch_size:
             self.setting.batch_size = self.setting.distrib.batch_size[0]
+            self.setting.data_augment = self.setting.distrib.data_augment[0]
+            self.setting.data_norm = self.setting.distrib.data_norm[0]
 
         data = DataMngr(self.setting)
         if fixed_batch_size:
@@ -65,6 +67,9 @@ class Tuner:
         
         # Tuning process
         print('\n=== START TUNING ===\n')
+
+        model_name = self.model_class.__name__ + str(self.setting.kind)
+        print('Model: {}\n'.format(model_name))
 
         for i, sample in enumerate(hparams_samples):
 
@@ -136,7 +141,7 @@ if __name__ == "__main__":
     # Hyper-parameters search space
     distrib = HyperParamsDistrib(
         # Batch
-        batch_size      = [32, 64, 128, 256, 512, 1024],
+        batch_size      = [32],
         batch_norm      = [False],
         # Epoch
         epochs          = [5],
@@ -150,7 +155,8 @@ if __name__ == "__main__":
         # Metric
         loss_optim      = [False, True],
         # Data
-        data_augment    = [False],
+        data_augment    = [True],
+        data_norm       = [True],
         # Early stopping
         early_stop      = [False, True],
         es_patience     = list(np.arange(7, 12)),
@@ -179,7 +185,7 @@ if __name__ == "__main__":
     validset = data.load_valid()
 
     # Load checkpoint
-    load_checkpoint = True
+    load_checkpoint = False
     if load_checkpoint:
         model = ConvNet(setting)
         setting.device.move(model)

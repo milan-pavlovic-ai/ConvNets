@@ -52,8 +52,8 @@ class InceptionNetV1(MultiClassBaseModel):
         layers += [self.maxpool2d(kernel_size=3, stride=2, padding=1)]
         
         # [2] Convolution
-        layers += [self.conv2d_block(num_filters=64, kernel_size=1, stride=1)]
-        layers += [self.conv2d_block(num_filters=192, kernel_size=3, stride=1, padding=1)]
+        layers += [self.conv2d_block(num_filters=64, kernel_size=1)]
+        layers += [self.conv2d_block(num_filters=192, kernel_size=3, padding=1)]
         layers += [self.maxpool2d(kernel_size=3, stride=2, padding=1)]
 
         # [3] Inception
@@ -222,7 +222,7 @@ def process_fit():
     # Create net
     model = InceptionNetV1(setting)
     setting.device.move(model)
-    model.print_summary()
+    model.print_summary(additional=False)
 
     # Train model
     model.fit(trainset, validset)
@@ -243,21 +243,22 @@ def process_tune():
         batch_size      = [256],
         batch_norm      = [True],
         # Epoch
-        epochs          = [10],
+        epochs          = [150],
         # Learning rate
-        learning_rate   = list(np.logspace(np.log10(0.0001), np.log10(0.1), base=10, num=1000)),
-        lr_factor       = list(np.logspace(np.log10(0.01), np.log10(1), base=10, num=1000)),
-        lr_patience     = list(np.arange(10, 12)),
+        learning_rate   = list(np.logspace(np.log10(0.0001), np.log10(0.01), base=10, num=1000)),
+        lr_factor       = list(np.logspace(np.log10(0.01), np.log10(0.5), base=10, num=1000)),
+        lr_patience     = [10],
         # Regularization
-        weight_decay    = list(np.logspace(np.log10(0.0001), np.log10(0.001), base=10, num=1000)),
-        dropout_rate    = stats.uniform(0.3, 0.7),
+        weight_decay    = list(np.logspace(np.log10(0.009), np.log10(0.9), base=10, num=1000)),
+        dropout_rate    = stats.uniform(0.5, 0.45),
         # Metric
         loss_optim      = [False],
         # Data
-        data_augment    = [False],
+        data_augment    = [True],
+        data_norm       = [True],
         # Early stopping
         early_stop      = [True],
-        es_patience     = list(np.arange(12, 15)),
+        es_patience     = [15],
         # Gradient clipping
         grad_clip_norm  = [False],
         gc_max_norm     = [1],
@@ -297,7 +298,7 @@ def process_tune():
     
     return
 
-def process_load(resume_training=False):
+def process_load(path, resume=False):
     """
     Process loading and resume training
     """
@@ -316,7 +317,7 @@ def process_load(resume_training=False):
     # Load checkpoint
     model = InceptionNetV1(setting)
     model.setting.device.move(model)
-    states = model.load_checkpoint(path='data/output/InceptionV1-1600097181-tuned.tar')
+    states = model.load_checkpoint(path=path)
     model.setting.show()
 
     # Load data
@@ -325,12 +326,12 @@ def process_load(resume_training=False):
     validset = data.load_valid()
 
     # Resume training
-    if resume_training:
+    if resume:
         model.setting.epochs = 10
         model.setting.learning_rate = 0.0005
         model.update_learning_rate()
         model.setting.show()
-        model.fit(trainset, validset, resume=True)
+        model.fit(trainset, validset, resume=resume)
 
     # Evaluate model
     testset = data.load_test()
@@ -343,6 +344,6 @@ if __name__ == "__main__":
     
     #process_fit()
 
-    #process_tune()
+    process_tune()
 
-    process_load(resume_training=False)
+    #process_load(path='data/output/VGGNet16-1600525028-tuned.tar', resume=False)

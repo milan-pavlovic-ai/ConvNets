@@ -54,7 +54,7 @@ class DataMngr:
         self.setting = setting
         self.batch_size = self.setting.batch_size
         self.data_augment = self.setting.data_augment
-        #self.data_norm = self.setting.data_norm
+        self.data_norm = self.setting.data_norm
         self.num_workers = self.setting.num_workers
 
         # Normalization parameters calculated from train dataset for each channel
@@ -140,15 +140,23 @@ class DataMngr:
         """
         Load images for training
         """
-        # Transforms on image
-        transformers = transforms.Compose([
-            #transforms.RandomHorizontalFlip(p=0.5), # Horizontally flip the given image randomly with a given probability
-            transforms.ToTensor(),                   # Convert to tensor and automatically normalize to [0..1] range
-            transforms.Normalize(mean=self.cinic_mean, std=self.cinic_std)])      # Normalize with given parameters calculated on training set
+        # Data augmentation
+        transforms_list = []
+        if self.data_augment:
+            transforms_list.append(transforms.RandomCrop(32, padding=4))
+            transforms_list.append(transforms.RandomHorizontalFlip(p=0.5))
+            #transforms_list.append(transforms.RandomAffine(degrees=10, shear=10, scale=(0.8, 1.2)))    # Performs actions like zooms, change shear angles
+
+        # Data normalization
+        if self.data_norm:
+            transforms_list.append(transforms.ToTensor())                                                # Convert to tensor and automatically normalize to [0..1] range   
+            transforms_list.append(transforms.Normalize(mean=self.cinic_mean, std=self.cinic_std))       # Normalize with given parameters calculated on training set
+        else:
+            transforms_list.append(transforms.ToTensor())
 
         # Load data
         trainset = torch.utils.data.DataLoader(
-            datasets.ImageFolder(DataMngr.TRAIN_DIR, transformers), 
+            datasets.ImageFolder(DataMngr.TRAIN_DIR, transforms.Compose(transforms_list)), 
             batch_size=self.batch_size,                 # how many samples per batch to load
             shuffle=True,                               # set to True to have the data reshuffled at every epoch
             pin_memory=True,                            # if True, it will enables faster data transfer from CPU to GPU by using page-locked memory
@@ -163,14 +171,17 @@ class DataMngr:
             For the validation/test dataset, we don't need any augmentation
         Source: https://discuss.pytorch.org/t/data-transformation-for-training-and-validation-data/32507
         """
-        # Transforms on image
-        transformers = transforms.Compose([
-            transforms.ToTensor(),                  # Convert to tensor and automatically normalize to [0..1] range   
-            transforms.Normalize(mean=self.cinic_mean, std=self.cinic_std)])      # Normalize with given parameters calculated on training set
+        # Data normalization
+        transforms_list = []
+        if self.data_norm:
+            transforms_list.append(transforms.ToTensor())                                                # Convert to tensor and automatically normalize to [0..1] range   
+            transforms_list.append(transforms.Normalize(mean=self.cinic_mean, std=self.cinic_std))       # Normalize with given parameters calculated on training set
+        else:
+            transforms_list.append(transforms.ToTensor())
 
         # Load data
         validset = torch.utils.data.DataLoader(
-            datasets.ImageFolder(DataMngr.VALID_DIR, transformers), 
+            datasets.ImageFolder(DataMngr.VALID_DIR, transforms.Compose(transforms_list)), 
             batch_size=self.batch_size,                 # how many samples per batch to load
             shuffle=True,                               # set to True to have the data reshuffled at every epoch, because it's used to check training performance while traning model
             pin_memory=True,                            # if True, it will enables faster data transfer from CPU to GPU by using page-locked memory
@@ -185,14 +196,17 @@ class DataMngr:
             For the validation/test dataset, we don't need any augmentation
         Source: https://discuss.pytorch.org/t/data-transformation-for-training-and-validation-data/32507
         """
-        # Transforms on image
-        transformers = transforms.Compose([
-            transforms.ToTensor(),                  # Convert to tensor and automatically normalize to [0..1] range
-            transforms.Normalize(mean=self.cinic_mean, std=self.cinic_std)])      # Normalize with given parameters calculated on training set
+        # Data normalization
+        transforms_list = []
+        if self.data_norm:
+            transforms_list.append(transforms.ToTensor())                                                # Convert to tensor and automatically normalize to [0..1] range   
+            transforms_list.append(transforms.Normalize(mean=self.cinic_mean, std=self.cinic_std))       # Normalize with given parameters calculated on training set
+        else:
+            transforms_list.append(transforms.ToTensor())
 
         # Load data
         testset = torch.utils.data.DataLoader(
-            datasets.ImageFolder(DataMngr.TEST_DIR, transformers), 
+            datasets.ImageFolder(DataMngr.TEST_DIR, transforms.Compose(transforms_list)), 
             batch_size=self.batch_size,                 # one sample per batch for testing, mostly because of inference time measuring
             shuffle=True,                               # data will be split into n segments for creating sample of metric for statistical testing
             pin_memory=True,                            # if True, it will enables faster data transfer from CPU to GPU by using page-locked memory
@@ -208,8 +222,9 @@ if __name__ == "__main__":
         kind=0,
         input_size=(3, 32, 32),
         num_classes=10,
-        batch_size=16,
-        data_augment=False,
+        batch_size=32,
+        data_augment=True,
+        data_norm=False,
         num_workers=2,
         test_sample_size=90,
         seed=21)

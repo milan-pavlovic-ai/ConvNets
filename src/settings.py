@@ -28,6 +28,7 @@ class HyperParams:
         self.dropout_rate = None
         self.loss_optim = None
         self.data_augment = None
+        self.data_norm = None
         self.early_stop = None
         self.es_patience = None
         self.grad_clip_norm = None
@@ -99,6 +100,7 @@ class HyperParamsDistrib(HyperParams):
 
     # Data
     DEF_DATA_AUGMENT = [False, True]
+    DEF_DATA_NORM = [False, True]
 
     # Early stopping
     DEF_EARLY_STOP = [False, True]
@@ -124,6 +126,7 @@ class HyperParamsDistrib(HyperParams):
         dropout_rate=None,
         loss_optim = None,
         data_augment=None,
+        data_norm = None,
         early_stop=None,
         es_patience = None,
         grad_clip_norm = None,
@@ -145,6 +148,7 @@ class HyperParamsDistrib(HyperParams):
         self.dropout_rate = dropout_rate
         self.loss_optim = loss_optim
         self.data_augment = data_augment
+        self.data_norm = data_norm
         self.early_stop = early_stop
         self.es_patience = es_patience
         self.grad_clip_norm = grad_clip_norm
@@ -189,7 +193,8 @@ class Settings(HyperParams):
     DEF_LOSS_OPTIM = False
 
     # Data
-    DEF_DATA_AUGMENT = False
+    DEF_DATA_AUGMENT = True
+    DEF_DATA_NORM = True
 
     # Early stopping
     DEF_EARLY_STOP = True
@@ -230,6 +235,7 @@ class Settings(HyperParams):
         dropout_rate=None,
         loss_optim=None,
         data_augment=None,
+        data_norm = None,
         early_stop=None,
         es_patience = None,
         grad_clip_norm = None,
@@ -264,6 +270,7 @@ class Settings(HyperParams):
         self.dropout_rate = dropout_rate
         self.loss_optim = loss_optim
         self.data_augment = data_augment
+        self.data_norm = data_norm
         self.early_stop = early_stop
         self.es_patience = es_patience
         self.grad_clip_norm = grad_clip_norm
@@ -347,6 +354,7 @@ if __name__ == "__main__":
         loss_optim = None,
         # Data
         data_augment=None,
+        data_norm = None,
         # Early stopping
         early_stop=None,
         es_patience = None,
@@ -384,6 +392,7 @@ if __name__ == "__main__":
         'mixed_precision':True,
         'num_workers':2,
         'test_sample_size':90,
-        'seed':42})
+        'seed':42,
+        'data_norm':False})
     setting2.show()
 
