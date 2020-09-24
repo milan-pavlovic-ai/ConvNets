@@ -259,6 +259,14 @@ def process_eval(model, trainset, validset, testset, tuning=False, results=None)
     """
     Process evaluation process
     """
+    # Trained epochs
+    train_epochs = model.epoch_results['train_epochs']
+    print('Trained epochs: {}'.format(train_epochs))
+
+    # Training time
+    train_time = float(model.epoch_results['train_time']) / 60
+    print('Training time: {:.2f} min'.format(train_time))
+
     # Plot training performance of best model
     plot = PlotMngr()
     plot.performance(model.epoch_results)
@@ -350,7 +358,7 @@ def process_tune():
     """
     Process the procedure of tuning model
     """
-        # Hyper-parameters search space
+    # Hyper-parameters search space
     distrib = HyperParamsDistrib(
         # Batch
         batch_size      = [256],
@@ -358,12 +366,12 @@ def process_tune():
         # Epoch
         epochs          = [150],
         # Learning rate
-        learning_rate   = list(np.logspace(np.log10(0.0001), np.log10(0.01), base=10, num=1000)),
-        lr_factor       = list(np.logspace(np.log10(0.01), np.log10(0.5), base=10, num=1000)),
+        learning_rate   = list(np.logspace(np.log10(0.0005), np.log10(0.01), base=10, num=1000)),
+        lr_factor       = list(np.logspace(np.log10(0.05), np.log10(0.5), base=10, num=1000)),
         lr_patience     = [10],
         # Regularization
-        weight_decay    = list(np.logspace(np.log10(0.009), np.log10(0.9), base=10, num=1000)),
-        dropout_rate    = stats.uniform(0.5, 0.45),
+        weight_decay    = list(np.logspace(np.log10(0.00001), np.log10(0.01), base=10, num=1000)),
+        dropout_rate    = stats.uniform(0.1, 0.6),
         # Metric
         loss_optim      = [False],
         # Data
@@ -380,7 +388,6 @@ def process_tune():
         # Initialization
         init_params     = [True]
     )
-
 
     # Create settings
     setting = Settings(
@@ -399,7 +406,7 @@ def process_tune():
     tuner = Tuner(SEResNet, setting)
 
     # Search for best model in tuning process
-    model, results = tuner.process(num_iter=3)
+    model, results = tuner.process(num_iter=5)
 
     # Load data for evaluation
     data = DataMngr(model.setting)
@@ -418,7 +425,7 @@ def process_load(path, resume=False):
     """
     # Create settings
     setting = Settings(
-        kind=50,
+        kind=26,
         input_size=(3, 32, 32),
         num_classes=10,
         batch_size=256,
@@ -459,6 +466,6 @@ if __name__ == "__main__":
     
     #process_fit()
 
-    process_tune()
+    #process_tune()
 
-    #process_load(path='data/output/SEResNet18-1600516991-tuned.tar', resume=False)
+    process_load(path='data/output/SEResNet26-1600789031-tuned.tar', resume=False)

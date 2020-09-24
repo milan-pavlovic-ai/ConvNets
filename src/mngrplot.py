@@ -22,7 +22,7 @@ class PlotMngr:
         self.num_epochs = None          # total number of epochs
         self.epochs = None              # list of epochs
         self.num_train_epochs = None    # trained number of epochs for best model
-        self.alpha = 0.85               # transparency factor
+        self.alpha = 0.75               # transparency factor
         self.max_charts_plot = 8        # maximum number of charts per one plot, must be divisible with maximum charts per row
         self.max_charts_row = 2         # maximum number of charts per one row
         self.charts_colors = ['blue', 'red', 'magenta', 'purple', 'lime', 'orange', 'lightskyblue', 'teal']
@@ -39,16 +39,16 @@ class PlotMngr:
 
         # Plot traning curve
         train_losses = self.epoch_results['train_loss']
-        axes.plot(self.epochs, train_losses, label='Traning', alpha=self.alpha)
+        axes.plot(self.epochs, train_losses, label='Traning', color='royalblue', alpha=self.alpha)
 
         # Plot validation curve
         valid_losses = self.epoch_results['valid_loss']
-        axes.plot(self.epochs, valid_losses, label='Validation', alpha=self.alpha)
+        axes.plot(self.epochs, valid_losses, label='Validation', color='forestgreen', alpha=self.alpha)
 
         # Plot number of trained epochs for best model
         x = [self.num_train_epochs, self.num_train_epochs]
         y = np.sort([train_losses[self.num_train_epochs - 1], valid_losses[self.num_train_epochs - 1]])
-        axes.plot(x, y, marker='x', color='green', lw=0, label='Best model')
+        axes.plot(x, y, marker='x', color='purple', lw=0, label='Best model', alpha=self.alpha)
 
         # Annotation for best model on training set
         text_value = 'Train\n{:.5f}'.format(train_losses[self.num_train_epochs - 1])
@@ -86,16 +86,16 @@ class PlotMngr:
 
         # Plot traning curve
         train_accuracy = np.array(self.epoch_results['train_score']) * 100
-        axes.plot(self.epochs, train_accuracy, label='Traning', alpha=self.alpha)
+        axes.plot(self.epochs, train_accuracy, label='Traning', color='royalblue', alpha=self.alpha)
 
         # Plot validation curve
         valid_accuracy = np.array(self.epoch_results['valid_score']) * 100
-        axes.plot(self.epochs, valid_accuracy, label='Validation', alpha=self.alpha)
+        axes.plot(self.epochs, valid_accuracy, label='Validation', color='forestgreen', alpha=self.alpha)
 
         # Plot number of trained epoch for best model
         x = [self.num_train_epochs, self.num_train_epochs]
         y = np.sort([train_accuracy[self.num_train_epochs - 1], valid_accuracy[self.num_train_epochs - 1]])
-        axes.plot(x, y, marker='x', color='green', lw=0, label='Best model')
+        axes.plot(x, y, marker='x', color='purple', lw=0, label='Best model', alpha=self.alpha)
 
         # Annotation for best model on training set
         text_value = 'Train\n{:.2f}%'.format(train_accuracy[self.num_train_epochs - 1])
@@ -133,12 +133,12 @@ class PlotMngr:
 
         # Plot learning rate curve
         learning_rates = self.epoch_results['learning_rate']
-        axes.plot(self.epochs, learning_rates, label='Learning rate', alpha=self.alpha)
+        axes.plot(self.epochs, learning_rates, label='Learning rate', color='royalblue', alpha=self.alpha)
 
         # Plot number of trained epoch for best model
         x = [self.num_train_epochs]
         y = [learning_rates[self.num_train_epochs - 1]]
-        axes.plot(x, y, marker='x', color='green', lw=0, label='Best model')
+        axes.plot(x, y, marker='x', color='purple', lw=0, label='Best model')
 
         # Annotation best model 
         text_value = 'Value\n{:.6f}'.format(learning_rates[self.num_train_epochs - 1]).rstrip('0')

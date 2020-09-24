@@ -29,7 +29,7 @@ class DenseNet(MultiClassBaseModel):
     """
 
     # Configuration 
-    #   in format (growth_rate, dense_blocks_list, num_init_features) 
+    #   in format (growth_rate, list_of_dense_block_size, num_init_features) 
     config = {
         '121': (32, [6, 12, 24, 16], 64),
         '169': (32, [6, 12, 32, 32], 64),
@@ -193,6 +193,14 @@ def process_eval(model, trainset, validset, testset, tuning=False, results=None)
     """
     Process evaluation process
     """
+    # Trained epochs
+    train_epochs = model.epoch_results['train_epochs']
+    print('Trained epochs: {}'.format(train_epochs))
+
+    # Training time
+    train_time = float(model.epoch_results['train_time']) / 60
+    print('Training time: {:.2f} min'.format(train_time))
+
     # Plot training performance of best model
     plot = PlotMngr()
     plot.performance(model.epoch_results)
@@ -292,12 +300,12 @@ def process_tune():
         # Epoch
         epochs          = [150],
         # Learning rate
-        learning_rate   = list(np.logspace(np.log10(0.0001), np.log10(0.01), base=10, num=1000)),
+        learning_rate   = list(np.logspace(np.log10(0.001), np.log10(0.1), base=10, num=1000)),
         lr_factor       = list(np.logspace(np.log10(0.01), np.log10(0.5), base=10, num=1000)),
         lr_patience     = [10],
         # Regularization
-        weight_decay    = list(np.logspace(np.log10(0.009), np.log10(0.9), base=10, num=1000)),
-        dropout_rate    = stats.uniform(0.5, 0.45),
+        weight_decay    = list(np.logspace(np.log10(0.00005), np.log10(0.005), base=10, num=1000)),
+        dropout_rate    = stats.uniform(0.1, 0.4),
         # Metric
         loss_optim      = [False],
         # Data
@@ -351,7 +359,7 @@ def process_load(path, resume=False):
     """
     # Create settings
     setting = Settings(
-        kind='169',
+        kind='121',
         input_size=(3, 32, 32),
         num_classes=10,
         num_workers=16,
@@ -389,6 +397,6 @@ if __name__ == "__main__":
     
     #process_fit()
 
-    process_tune()
+    #process_tune()
 
-    #process_load(path='data/output/VGGNet16-1600525028-tuned.tar', resume=False)
+    process_load(path='data/output/DenseNet121-1600733395-tuned.tar', resume=False)

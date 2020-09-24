@@ -145,7 +145,7 @@ class DataMngr:
         if self.data_augment:
             transforms_list.append(transforms.RandomCrop(32, padding=4))
             transforms_list.append(transforms.RandomHorizontalFlip(p=0.5))
-            #transforms_list.append(transforms.RandomAffine(degrees=10, shear=10, scale=(0.8, 1.2)))    # Performs actions like zooms, change shear angles
+            transforms_list.append(transforms.RandomAffine(degrees=15, shear=15, scale=(0.75, 1.25)))    # Performs actions like zooms, change shear angles
 
         # Data normalization
         if self.data_norm:

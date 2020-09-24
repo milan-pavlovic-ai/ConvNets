@@ -947,7 +947,7 @@ class MultiClassBaseModel(nn.Module):
         # Contains information about each epoch
         return checkpoint
 
-    def print_summary(self, additional=True):
+    def print_summary(self, additional=False):
         """
         Print summary of model including layers, shapes and number of parameters
         """
@@ -958,7 +958,7 @@ class MultiClassBaseModel(nn.Module):
             device=self.setting.device.device.type)
         print(model_summary)
 
-        if additional:
+        if additional or self.setting.debug:
             print(self)
         return
 
