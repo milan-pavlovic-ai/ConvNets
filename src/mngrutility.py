@@ -1,8 +1,9 @@
 
+import torch
 import random
 import numpy as np
-import torch
-
+import scipy.stats as stats
+from functools import cmp_to_key
 
 class UtilityMngr:
     """
@@ -56,6 +57,61 @@ class UtilityMngr:
             torch.backends.cudnn.deterministic = True
             torch.backends.cudnn.benchmark = False
         return
+   
+    @staticmethod
+    def get_models_scores():
+        """
+        Returns list of models with their names and scores
+        """
+        # Models
+        models = {}
+
+        # VGGNet
+        import vggnet
+        name, scores = vggnet.process_load('data/output/VGGNet11-1600959117-tuned.tar', testing=True)
+        models[name] = scores
+
+        # InceptionNet
+        import inceptionnet_v1
+        name, scores = inceptionnet_v1.process_load('data/output/InceptionNetV1-1600908899-tuned.tar', testing=True)
+        models[name] = scores
+        
+        # ResNet
+        import resnet
+        name, scores = resnet.process_load('data/output/ResNet26-1600717670-tuned.tar', testing=True)
+        models[name] = scores
+
+        # SqueezeNet
+        import squeezenet
+        name, scores = squeezenet.process_load('data/output/SqueezeNet1.1-1600730105-tuned.tar', testing=True)
+        models[name] = scores
+        
+        # DenseNet
+        import densenet
+        name, scores = densenet.process_load('data/output/DenseNet121-1600733395-tuned.tar', testing=True)
+        models[name] = scores
+
+        # MobileNet
+        import mobilenet_v1
+        name, scores = mobilenet_v1.process_load('data/output/MobileNetV1-1600756521-tuned.tar', testing=True)
+        models[name] = scores
+
+        # ShuffleNet
+        import shufflenet_v1
+        name, scores = shufflenet_v1.process_load('data/output/ShuffleNetV1g4-1600946548-tuned.tar', testing=True)
+        models[name] = scores
+        
+        # SEResNet
+        import se_resnet
+        name, scores = se_resnet.process_load('data/output/SEResNet26-1600789031-tuned.tar', testing=True)
+        models[name] = scores
+
+        # SKResNet
+        import sk_resnet
+        name, scores = sk_resnet.process_load('data/output/SKResNet26-1600653648-best_score.tar', testing=True)
+        models[name] = scores
+
+        return models
 
 
 if __name__ == "__main__":

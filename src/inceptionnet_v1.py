@@ -306,7 +306,7 @@ def process_tune():
     
     return
 
-def process_load(path, resume=False):
+def process_load(path, resume=False, testing=False):
     """
     Process loading and resume training
     """
@@ -343,6 +343,9 @@ def process_load(path, resume=False):
 
     # Evaluate model
     testset = data.load_test()
+    if testing:
+        scores, times, fps = model.test(testset)
+        return model.model_name, scores
     process_eval(model, trainset, validset, testset, tuning=True, results=states)
 
     return

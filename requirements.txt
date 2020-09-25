@@ -19,3 +19,4 @@ torch==1.6.0+cu101
 torchsummary==1.5.1
 torchvision==0.7.0+cu101
 tqdm==4.48.2
+xlrd==1.2.0

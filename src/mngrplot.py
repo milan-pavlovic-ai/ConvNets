@@ -26,6 +26,7 @@ class PlotMngr:
         self.max_charts_plot = 8        # maximum number of charts per one plot, must be divisible with maximum charts per row
         self.max_charts_row = 2         # maximum number of charts per one row
         self.charts_colors = ['blue', 'red', 'magenta', 'purple', 'lime', 'orange', 'lightskyblue', 'teal']
+        sns.set(style='darkgrid')
 
 
     def losses(self, axes):
@@ -245,7 +246,6 @@ class PlotMngr:
         i_best_model = results['best_model_index']
 
         plots = UtilityMngr.split(hparams, part_size=self.max_charts_plot)
-        sns.set(style='darkgrid')
 
         # Plotting maximum number of charts per plot
         for plot in plots:
@@ -295,11 +295,85 @@ class PlotMngr:
         return
 
 
+    def models(self, scores_by_models):
+        """
+        Plot descriptive statistics and distribution of scores per model
+        """
+        # Box plots + Violins
+        fig, axes = plt.subplots()
+        axes.boxplot(scores_by_models.values())
+        axes.violinplot(scores_by_models.values(), showmeans=False, showextrema=False)
+        axes.set_title('Models', fontsize=18, pad=20)
+        axes.set_ylabel('Accuracy', fontsize=14)
+        axes.set_xticklabels(scores_by_models.keys())
+
+        # Show plot
+        mng = plt.get_current_fig_manager()
+        mng.full_screen_toggle()
+        plt.show()
+        plt.close()
+        return
+
+    def metrics_analysis(self):
+        """
+        Analysis of metrics
+        """
+        # Data
+        results = pd.read_excel('data/results.xlsx', header=0)
+        results.columns = ['Configurations', 'Complexity', 'Speed', 'Throughput', 'Training Time', 'Memory Usage', 'Accuracy']
+        results = results.set_index('Configurations')
+        print(results)
+        
+        # Metrics
+        names = results.index
+        self.accuracy_vs_complexity(results['Accuracy'], results['Complexity'], names)
+        self.correlations(results)
+        return
+
+    def accuracy_vs_complexity(self, accuracy, complexity, names):
+        """
+        Accuracy vs Complexity scatter plot
+        """
+        # Scatter plot
+        plt.figure()
+        axes = sns.scatterplot(x=complexity, y=accuracy, hue=names)
+        axes.set_title('Accuracy vs Complexity', fontsize=18, pad=20)
+        axes.set_ylabel('Accuracy', fontsize=12)
+        axes.set_xlabel('Complexity', fontsize=12)
+
+        # Show plot
+        #mng = plt.get_current_fig_manager()
+        #mng.full_screen_toggle()
+        plt.show()
+        plt.close()
+        return
+
+    def correlations(self, data):
+        """
+        Calculate correlation matrix
+        """
+        # Calculate correlation
+        corr_matrix = data.corr(method='pearson')
+        print(corr_matrix)
+
+        # Show as heatmap
+        plt.figure()
+        axes = sns.heatmap(corr_matrix, annot=True, cmap='Reds')
+        axes.tick_params(axis='both', which='both', length=0)
+        axes.set_xticklabels(axes.get_xticklabels(), rotation=-360, horizontalalignment='center')
+        axes.set_title('Pearson correlation matrix', fontsize=18, pad=20)
+        axes.xaxis.labelpad = 20
+    
+        plt.show()
+        plt.close()
+        return corr_matrix
+
+
 if __name__ == "__main__":
 
     # Initialization
     plot = PlotMngr()
- 
+
     # Performance
     epoch_results = {
         'train_loss': np.linspace(0.5, 0.001, 10),
@@ -327,3 +401,11 @@ if __name__ == "__main__":
     hparams = ['batch_size', 'learning_rate', 'lr_factor', 'lr_patience', 'early_stop', 'es_patience', 'gc_value']
     plot.hyperparameters(results, hparams=hparams)
 
+    # Models statistics
+    models_scores = {'vggnet': [0.75, 0.86], 'resnet': [0.74, 0.88], 'densenet': [0.68, 0.71]}
+    #models_scores = UtilityMngr.get_models_scores()
+    print(models_scores)
+    #plot.models(models_scores)
+
+    # Metrics analysis
+    plot.metrics_analysis()
