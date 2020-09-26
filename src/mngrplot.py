@@ -361,7 +361,7 @@ class PlotMngr:
             y_label='Accuracy',
             models=results.index,
             title='Accuracy vs Memory Usage',
-            thresholds=[500, 1000],
+            thresholds=[512, 1024],
         )
 
         # Accuracy density
