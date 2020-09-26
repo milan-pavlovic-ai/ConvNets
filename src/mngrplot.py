@@ -324,28 +324,57 @@ class PlotMngr:
         results = results.set_index('Configurations')
         print(results)
         
-        # Metrics
-        names = results.index
-        self.accuracy_vs_complexity(results['Accuracy'], results['Complexity'], names)
+        # Correlations
         self.correlations(results)
-        return
 
-    def accuracy_vs_complexity(self, accuracy, complexity, names):
-        """
-        Accuracy vs Complexity scatter plot
-        """
-        # Scatter plot
-        plt.figure()
-        axes = sns.scatterplot(x=complexity, y=accuracy, hue=names)
-        axes.set_title('Accuracy vs Complexity', fontsize=18, pad=20)
-        axes.set_ylabel('Accuracy', fontsize=12)
-        axes.set_xlabel('Complexity', fontsize=12)
+        # Accuracy vs Complexity
+        self.scatter_plot(
+            data=results,
+            x_label='Complexity',
+            y_label='Accuracy',
+            models=results.index,
+            title='Accuracy vs Complexity',
+            thresholds=[],
+        )
+        # Accuracy vs Throughput
+        self.scatter_plot(
+            data=results,
+            x_label='Throughput',
+            y_label='Accuracy',
+            models=results.index,
+            title='Accuracy vs Throughput',
+            thresholds=[15, 30],
+        )
+        # Accuracy vs Training Time
+        self.scatter_plot(
+            data=results,
+            x_label='Training Time',
+            y_label='Accuracy',
+            models=results.index,
+            title='Accuracy vs Training Time',
+            thresholds=[60],
+        )
+        # Accuracy vs Memory Usage
+        self.scatter_plot(
+            data=results,
+            x_label='Memory Usage',
+            y_label='Accuracy',
+            models=results.index,
+            title='Accuracy vs Memory Usage',
+            thresholds=[500, 1000],
+        )
 
-        # Show plot
-        #mng = plt.get_current_fig_manager()
-        #mng.full_screen_toggle()
-        plt.show()
-        plt.close()
+        # Accuracy density
+        self.scatter_plot(
+            data=results,
+            x_label='Accuracy density',
+            y_label='Accuracy',
+            models=results.index,
+            title='Accuracy density',
+            thresholds=[],
+            x_data=results['Accuracy'] / results['Complexity']
+        )
+
         return
 
     def correlations(self, data):
@@ -367,6 +396,48 @@ class PlotMngr:
         plt.show()
         plt.close()
         return corr_matrix
+
+    def scatter_plot(self, data, x_label, y_label, models, title, thresholds=None, x_data=None, y_data=None):
+        """
+        Scatter plot
+        """
+        # Set axes data
+        if x_data is None:
+            x_data = data[x_label]
+        if y_data is None:
+            y_data = data[y_label]
+
+        # Scatter plot
+        axes = sns.scatterplot(
+            x=x_data, 
+            y=y_data, 
+            hue=models,  
+            size=data['Complexity'],
+            sizes=(100, 1000)
+        )
+
+        # Tresholds
+        if thresholds is not None or len(thresholds) > 0:
+            max_val = y_data.max() + 1
+            for threshold in thresholds:
+                sns.lineplot(
+                    x=[threshold, threshold],
+                    y=[0, max_val],
+                    color='red', 
+                    lw=2, 
+                    axes=axes)
+        
+        # Settings
+        axes.set_title(title, fontsize=18, pad=20)
+        axes.set_xlabel(x_label, fontsize=12)
+        axes.set_ylabel(y_label, fontsize=12)
+
+        # Show plot
+        #mng = plt.get_current_fig_manager()
+        #mng.full_screen_toggle()
+        plt.show()
+        plt.close()
+        return
 
 
 if __name__ == "__main__":
