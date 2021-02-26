@@ -1034,7 +1034,7 @@ class MultiClassBaseModel(nn.Module):
 
     def adapt_avgpool2d(self, set_output=True, **kwargs):
         """
-        Average Pooling 2D
+        Global Average Pooling 2D
         """
         layer = nn.AdaptiveAvgPool2d(**kwargs)
         if set_output:
