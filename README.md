@@ -22,6 +22,11 @@ Architectures of convolutional neural networks for image classification in PyTor
 
     https://arxiv.org/pdf/1512.03385v1.pdf
 
+* ### ResNeXt
+    Aggregated Residual Transformations for Deep Neural Networks
+    
+    https://arxiv.org/pdf/1611.05431.pdf
+
 * ### SqueezeNet-v1
 
     SqueezeNet: AlexNet-Level Accuracy with 50x Fewer Parameters and 0.5Mb Model Size
@@ -46,13 +51,13 @@ Architectures of convolutional neural networks for image classification in PyTor
 
     https://arxiv.org/pdf/1707.01083v2.pdf
 
-* ### SE-ResNet
+* ### SE-ResNet and SENet
 
     Squeeze-and-Excitation Networks
 
     https://arxiv.org/pdf/1709.01507v4.pdf
 
-* ### SK-ResNet
+* ### SK-ResNet and SKNet
 
     Selective Kernel Networks
 
