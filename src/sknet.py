@@ -78,6 +78,9 @@ class SKNet(MultiClassBaseModel):
             for _ in range(1, num_repeat):
                 layers += [self.sk_block(block_type, num_filters, expansion)]
 
+        # Adaptive Average-Pool
+        layers += [self.adapt_avgpool2d(output_size=1)]
+
         return nn.Sequential(*layers)
 
     def sk_block(self, block_type, num_filters, expansion, stride=1, cardinality=32):
