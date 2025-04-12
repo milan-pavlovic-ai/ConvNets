@@ -2,8 +2,8 @@
 Architectures of convolutional neural networks for image classification in PyTorch.
 
 This repository implements various architectures of Convolutional Neural Networks (CNNs) for image classification tasks using PyTorch.
-Each model showcases unique advancements in CNN design, addressing challenges in accuracy, efficiency, and model size.
-Each architecture is implemented in PyTorch, providing clear instructions on training, evaluation, and experimentation.
+Each model showcases unique advancements in CNN design, addressing key challenges in accuracy, computational efficiency, and model size.
+The repository also provides clear instructions on how to train, evaluate, and experiment with each architecture, making it easier to understand and apply these models in real-world image classification tasks.
 
 ## Architectures
 
